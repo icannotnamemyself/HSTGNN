@@ -10,7 +10,7 @@ def use_proxy():
     import pyChainedProxy as socks
 
     chain = [
-    'socks5://127.0.0.1:7891', 
+    'socks5://127.0.0.1:7890', 
     ]
     socks.setdefaultproxy() # Clear the default chain
     #adding hops with proxies

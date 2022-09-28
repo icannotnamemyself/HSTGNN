@@ -1,13 +1,12 @@
 import os
 import resource
-from.PytDataset import PytDataset
-from torch_timeseries.data.extract import extract_zip
+from.dataset import Dataset
 from typing import Callable, List, Optional
 import torch
 from torchvision.datasets.utils import download_and_extract_archive, check_integrity
+import pandas as pd
 
-
-class SolarEnergy(PytDataset):
+class SolarEnergy(Dataset):
 
     tasks =['supervised', 'prediction', 'multi_timeseries', 'regression']
     
@@ -29,7 +28,7 @@ class SolarEnergy(PytDataset):
         """
         super().__init__(root, transform, pre_transform)
 
-        self.dataset_name = 'traffic'
+        self.dataset_name = 'solar_AL'
 
         self.raw_dir = os.path.join(root, self.dataset_name, 'raw',)
         self.processed_dir = os.path.join(root, self.dataset_name, 'processed')
@@ -38,7 +37,10 @@ class SolarEnergy(PytDataset):
         os.makedirs(self.processed_dir, exist_ok=True)
 
         self.download()
-
+    
+    def raw_df(self) -> pd.DataFrame:
+        return pd.read_csv(os.path.join(self.raw_dir, 'solar_AL.txt'), sep=',')
+    
     def download(self) -> None:
         download_and_extract_archive(
             "https://raw.githubusercontent.com/laiguokun/multivariate-time-series-data/master/solar-energy/solar_AL.txt.gz",

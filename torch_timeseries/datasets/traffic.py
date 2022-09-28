@@ -1,13 +1,12 @@
 import os
 import resource
-from.PytDataset import PytDataset
-from torch_timeseries.data.extract import extract_zip
+from .dataset import Dataset
 from typing import Callable, List, Optional
 import torch
 from torchvision.datasets.utils import download_and_extract_archive, check_integrity
+import pandas as pd
 
-
-class Traffic(PytDataset):
+class Traffic(Dataset):
 
     tasks =['supervised', 'prediction', 'multi_timeseries', 'regression']
     
@@ -39,6 +38,10 @@ class Traffic(PytDataset):
 
         self.download()
 
+    
+    def raw_df(self) -> pd.DataFrame:
+        return pd.read_csv(os.path.join(self.raw_dir, 'traffic.txt'), sep=',')
+    
     def download(self) -> None:
         download_and_extract_archive(
             "https://raw.githubusercontent.com/laiguokun/multivariate-time-series-data/master/traffic/traffic.txt.gz",

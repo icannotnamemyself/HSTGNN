@@ -1,7 +1,6 @@
 import os
 import resource
-from torch_timeseries.data import Dataset, download_url
-from torch_timeseries.data.extract import extract_zip
+from torch_timeseries.datasets.dataset import Dataset
 from typing import Callable, List, Optional
 import torch
 from torchvision.datasets.utils import download_and_extract_archive, check_integrity

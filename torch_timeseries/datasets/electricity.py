@@ -1,13 +1,12 @@
 import os
 import resource
-from.PytDataset import PytDataset
-from torch_timeseries.data.extract import extract_zip
+from.dataset import Dataset
 from typing import Callable, List, Optional
 import torch
 from torchvision.datasets.utils import download_and_extract_archive, check_integrity
+import pandas as pd
 
-
-class Electricity(PytDataset):
+class Electricity(Dataset):
 
     tasks =['supervised', 'prediction', 'multi_timeseries', 'regression']
     
@@ -38,12 +37,15 @@ class Electricity(PytDataset):
         os.makedirs(self.processed_dir, exist_ok=True)
 
         self.download()
-
+        
+    def raw_df(self) -> pd.DataFrame:
+        return pd.read_csv(os.path.join(self.raw_dir, 'electricity.txt'), sep=',')
+    
     def download(self) -> None:
         download_and_extract_archive(
             "https://raw.githubusercontent.com/laiguokun/multivariate-time-series-data/master/electricity/electricity.txt.gz",
             self.raw_dir,
-            filename="",
+            filename="electricity.txt.gz",
             md5="07d51dc39c404599ead932937985957b",
         )
         
