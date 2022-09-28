@@ -40,7 +40,7 @@ class Traffic(Dataset):
 
     
     def raw_df(self) -> pd.DataFrame:
-        return pd.read_csv(os.path.join(self.raw_dir, 'traffic.txt'), sep=',')
+        return pd.read_csv(os.path.join(self.raw_dir, 'traffic.txt'), sep=',', header=None)
     
     def download(self) -> None:
         download_and_extract_archive(

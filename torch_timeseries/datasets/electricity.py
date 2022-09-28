@@ -39,7 +39,7 @@ class Electricity(Dataset):
         self.download()
         
     def raw_df(self) -> pd.DataFrame:
-        return pd.read_csv(os.path.join(self.raw_dir, 'electricity.txt'), sep=',')
+        return pd.read_csv(os.path.join(self.raw_dir, 'electricity.txt'), sep=',', header=None)
     
     def download(self) -> None:
         download_and_extract_archive(

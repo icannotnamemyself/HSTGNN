@@ -41,7 +41,7 @@ class ExchangeRate(Dataset):
         
         
     def raw_df(self) -> pd.DataFrame:
-        return pd.read_csv(os.path.join(self.raw_dir, 'exchange_rate.txt'), sep=',')
+        return pd.read_csv(os.path.join(self.raw_dir, 'exchange_rate.txt'), sep=',', header=None)
     
     def download(self) -> None:
         download_and_extract_archive(
