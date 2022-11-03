@@ -2,6 +2,8 @@ import pytest
 import socket
 import pyChainedProxy as socks
 
+import numpy as np
+import pandas as pd
 
 @pytest.fixture(scope='session')
 def use_proxy():
@@ -24,3 +26,11 @@ def use_proxy():
     # Monkey Patching whole socket class (everything will be proxified)
     rawsocket = socket.socket
     socket.socket = socks.socksocket
+
+
+@pytest.fixture(scope='session')
+def dummy_dataset():
+    data_len = 50000
+    data = np.array[np.arange(0,data_len), np.arange(0,data_len), np.arange(0,data_len)]
+    yield data    
+

@@ -2,6 +2,13 @@ data/
 dist
 build
 
+run
+logs
+save
+saves
+*.pt
+
+wandb
 
 # dataset suffix
 *.txt.gz
