@@ -162,7 +162,6 @@ torch.set_num_threads(3)
 def main():
     logger.info(args)
     Data = DataLoaderS(args.data, 0.6, 0.2, device, args.horizon, args.seq_in_len, args.normalize)
-# 
     model = Net(input_node=args.num_nodes,seq_len=args.seq_in_len,in_dim=args.in_dim, embed_dim=8, middle_channel=8, seq_out=1,dilation_exponential=2, layers=5, device=device)
     
     # model = gtnet(args.gcn_true, args.buildA_true, args.gcn_depth, args.num_nodes,

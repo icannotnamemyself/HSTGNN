@@ -45,7 +45,7 @@ class Electricity(Dataset):
         
         self.file_name = os.path.join(self.raw_dir, 'electricity.txt')
         
-        
+
         self.raw_data = np.loadtxt(self.file_name, delimiter=',')
         self.raw_tensor = torch.from_numpy(self.raw_data)
         self.tensor = torch.from_numpy(self.raw_data)
@@ -76,9 +76,5 @@ class Electricity(Dataset):
         )
         
         
-
-
-
-
-class DataLoader():
-    pass
+    
+        
