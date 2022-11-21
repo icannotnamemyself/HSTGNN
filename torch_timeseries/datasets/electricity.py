@@ -12,7 +12,7 @@ class Electricity(Dataset):
     tasks =['supervised', 'prediction', 'multi_timeseries', 'regression']
     
     url = "https://github.com/laiguokun/multivariate-time-series-data"
-
+    feature_nums = 321
     resources = {
         'electricity.txt.gz': '07d51dc39c404599ead932937985957b'
     }

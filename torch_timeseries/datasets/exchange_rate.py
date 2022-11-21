@@ -1,6 +1,6 @@
 import os
 import resource
-from.dataset import Dataset
+from .dataset import Dataset
 from typing import Any, Callable, List, Optional
 import torch
 from torchvision.datasets.utils import download_and_extract_archive, check_integrity
@@ -13,7 +13,7 @@ class ExchangeRate(Dataset):
     tasks =['supervised', 'prediction', 'multi_timeseries', 'regression']
     
     url = "https://github.com/laiguokun/multivariate-time-series-data"
-
+    feature_nums = 8
     resources = {
         'exchange_rate.txt.gz': '9dd5a9c8f8f324e234938400f232fa08'
     }
@@ -46,7 +46,7 @@ class ExchangeRate(Dataset):
         self.raw_tensor = torch.from_numpy(self.raw_data)
         self.tensor = torch.from_numpy(self.raw_data)
         
-        self.num_nodes = len(self.raw_df().columns)
+        self.num_nodes = self.feature_nums
 
         self.download()
         

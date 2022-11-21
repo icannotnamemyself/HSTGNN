@@ -5,9 +5,13 @@ import torch.utils.data
 
 class Dataset(torch.utils.data.Dataset):
     
+    
+    feature_nums = 0    
     def __init__(self,root:str,transform: Optional[Callable] = None,
                 target_transform: Optional[Callable] = None):
         super().__init__()
+        
+        
 
         
         

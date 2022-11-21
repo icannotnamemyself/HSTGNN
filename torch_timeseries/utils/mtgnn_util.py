@@ -22,7 +22,7 @@ class DataLoaderS(object):
         self.scale = np.ones(self.m)
         self._normalized(normalize)
         self._split(int(train * self.n), int((train + valid) * self.n), self.n)
-
+        
         self.scale = torch.from_numpy(self.scale).float()
         tmp = self.test[1] * self.scale.expand(self.test[1].size(0), self.m)
 

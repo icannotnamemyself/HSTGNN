@@ -2,7 +2,8 @@ import math
 from turtle import forward
 from torch import Tensor
 import torch.nn as nn
-from torch_timeseries.datasets.electricity import DataLoader
+from torch.utils.data import DataLoader
+from torch_timeseries.datasets.electricity import Electricity
 from torch_timeseries.nn.dialted_inception import DilatedInception
 from torch_timeseries.nn.timeseries_startconv import TimeSeriesStartConv
 import torch.nn.functional as F
@@ -121,7 +122,7 @@ class LayerNorm(nn.Module):
 
 
 class Net(nn.Module):
-    def __init__(self, input_node:int,seq_len:int,in_dim:int, embed_dim:int, middle_channel=32, seq_out:int=1,dilation_exponential=1, layers=3, dropout=0.3, device='cpu') -> None:
+    def __init__(self, input_node:int,seq_len:int,in_dim:int, embed_dim:int, middle_channel=32, seq_out:int=1,dilation_exponential=1, layers=3, dropout=0.3) -> None:
         super().__init__()
         
         self.input_node = input_node
@@ -166,9 +167,9 @@ class Net(nn.Module):
         #                                      out_channels=seq_out,
         #                                      kernel_size=(1,1),
         #                                      bias=True)
-        self.device = device
+        # self.device = device
         
-        self.idx = torch.arange(self.input_node).to(device)
+        self.idx = torch.arange(self.input_node)
 
         kernel_size = 7
         for i in range(1):
@@ -256,11 +257,11 @@ if __name__ == "__main__":
     
     window = 168
     horizon = 3
-    # electricity = Electricity(root='./data', window=window, horizon=horizon)
-    exchange_rate = ExchangeRate(root='./data', window=window, horizon=horizon)
+    electricity = Electricity(root='./data', window=window, horizon=horizon)
+    # exchange_rate = ExchangeRate(root='./data', window=window, horizon=horizon)
     
     
-    dataset = exchange_rate
+    dataset = electricity
     device = 'cuda:0'
     scaler = MaxAbsScaler(device=device)
     scaler.fit(dataset.raw_tensor)
@@ -301,7 +302,7 @@ if __name__ == "__main__":
     
     
 
-    model = Net(input_node=dataset.num_nodes,seq_len=dataset.window,in_dim=1, embed_dim=8, middle_channel=8, seq_out=1,dilation_exponential=2, layers=5, device=device)
+    model = Net(input_node=dataset.num_nodes,seq_len=dataset.window,in_dim=1, embed_dim=8, middle_channel=8, seq_out=1,dilation_exponential=2, layers=5)
     model = model.to(device)
     # loader = torch.utils.data.DataLoader(test_dataset, batch_size=64)
     # for x, y in loader:
@@ -339,7 +340,9 @@ if __name__ == "__main__":
     
         for X, Y in val_loader:
             X = X.to(device, dtype=torch.float)            
-            Y = Y.to(device, dtype=torch.float)            
+            Y = Y.to(device, dtype=torch.float)   
+            import pdb
+            pdb.set_trace()         
             test_raw_tensor = torch.cat([test_raw_tensor,X], 0)
 
             
@@ -429,8 +432,6 @@ if __name__ == "__main__":
             iter += 1
     for epoch in range(50):
         train(train_loader=train_loader, model=model, optim=optim)
-        # rse, rae, correlation = evaluate(val_loader=test_loader, model=model)
-        # print('| end of epoch {:3d}  | test rse {:5.4f} | test rae {:5.4f} | test corr  {:5.4f}'.format(epoch, rse, rae, correlation))
         
         rse, rae, correlation = evaluate(val_loader=val_loader, model=model)
         print('| end of epoch {:3d}  | valid rse {:5.4f} | valid rae {:5.4f} | valid corr  {:5.4f}'.format(epoch, rse, rae, correlation))

@@ -11,7 +11,7 @@ class Traffic(Dataset):
     tasks =['supervised', 'prediction', 'multi_timeseries', 'regression']
     
     url = "https://github.com/laiguokun/multivariate-time-series-data"
-
+    feature_nums = 862
     resources = {
         'traffic.txt.gz': 'db745d0c9f074159581a076cbb3f23d6'
     }

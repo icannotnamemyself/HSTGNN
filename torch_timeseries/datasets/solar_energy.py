@@ -12,6 +12,7 @@ class SolarEnergy(Dataset):
     
     url = "https://github.com/laiguokun/multivariate-time-series-data"
 
+    feature_nums = 137
     resources = {
         'solar_AL.txt.gz': '41ef7fdc958c2ca3fac9cd06d6227073'
     }
