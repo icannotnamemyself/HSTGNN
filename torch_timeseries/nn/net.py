@@ -337,12 +337,10 @@ if __name__ == "__main__":
 
         evaluateL2 = nn.MSELoss(size_average=False).to(device)
         evaluateL1 = nn.L1Loss(size_average=False).to(device)
-    
+        
         for X, Y in val_loader:
             X = X.to(device, dtype=torch.float)            
             Y = Y.to(device, dtype=torch.float)   
-            import pdb
-            pdb.set_trace()         
             test_raw_tensor = torch.cat([test_raw_tensor,X], 0)
 
             
@@ -371,9 +369,9 @@ if __name__ == "__main__":
             n_samples += (output.size(0) * dataset.num_nodes)
 
         # for eliminating diference between datasets , divide test_rse and test_rae
-        normed_test_tensor = scaler.transform(test_raw_tensor)
-        test_rse =  normal_std( normed_test_tensor)
-        test_rae = torch.mean(torch.abs(normed_test_tensor - torch.mean(normed_test_tensor)))
+        # normed_test_tensor = scaler.transform(test_raw_tensor)
+        test_rse =  normal_std( test_raw_tensor)
+        test_rae = torch.mean(torch.abs(test_raw_tensor - torch.mean(test_raw_tensor)))
         rse = math.sqrt(total_loss / n_samples)   / test_rse
         rae = (total_loss_l1 / n_samples)   / test_rae
 
@@ -426,7 +424,6 @@ if __name__ == "__main__":
             
             total_loss += loss.item()
             grad_norm = optim.step()
-            
             if iter%100==0:
                 print('iter:{:3d} | loss: {:.3f}'.format(iter,loss.item()/(output.size(0))/output.size(1)))
             iter += 1

@@ -28,6 +28,7 @@ def normal_std(x):
 
 
 def train_pipe(dataset:Dataset , window: int , horizon:int, device:str, scaler:Scaler, model:nn.Module, loss_func:nn.Module, optim:Optimizer,epoches:int):
+    # fit scaler
     scaler.fit(dataset.raw_tensor)
     dataset_size = len(dataset)
     
@@ -50,7 +51,7 @@ def train_pipe(dataset:Dataset , window: int , horizon:int, device:str, scaler:S
     test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=32,sampler=RandomSampler(test_dataset))
     
     
-    model = model.to(device)
+    model = model.to()
     
     
     nParams = sum([p.nelement() for p in model.parameters()])
@@ -113,9 +114,11 @@ def train_pipe(dataset:Dataset , window: int , horizon:int, device:str, scaler:S
             n_samples += (output.size(0) * dataset.num_nodes)
 
         # for eliminating diference between datasets , divide test_rse and test_rae
-        normed_test_tensor = scaler.transform(test_raw_tensor)
-        test_rse =  normal_std(normed_test_tensor)
-        test_rae = torch.mean(torch.abs(normed_test_tensor - torch.mean(normed_test_tensor)))
+        # normed_test_tensor = scaler.transform(test_raw_tensor)
+        test_rse =  normal_std(test_raw_tensor)
+        test_rae = torch.mean(torch.abs(test_raw_tensor - torch.mean(test_raw_tensor)))
+        import pdb
+        pdb.set_trace()
         rse = math.sqrt(total_loss / n_samples)   / test_rse
         rae = (total_loss_l1 / n_samples)   / test_rae
 
@@ -129,6 +132,7 @@ def train_pipe(dataset:Dataset , window: int , horizon:int, device:str, scaler:S
         index = (sigma_g != 0)
         correlation = ((predict - mean_p) * (Ytest - mean_g)).mean(axis=0) / (sigma_p * sigma_g)
         correlation = (correlation[index]).mean()
+        
         return rse, rae, correlation
 
     def train(train_loader:DataLoader, model:nn.Module, optim:Optimizer):
@@ -188,8 +192,8 @@ if __name__ == "__main__":
     epoches = 50
     dataset = Electricity(root='./data', window=window, horizon=horizon)
     model = Net(input_node=dataset.feature_nums,seq_len=dataset.window,in_dim=1, embed_dim=8, middle_channel=8, seq_out=1,dilation_exponential=2, layers=5)
-    # optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=0.0001)
-    optimizer=Optim(model.parameters(),'adam', 0.001, 5, lr_decay=0.00001)
+    optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=0.0001)
+    # optimizer=Optim(model.parameters(),'adam', 0.001, 5, lr_decay=0.00001)
     scaler = MaxAbsScaler(device)
     
     train_pipe(dataset, window, horizon, device, scaler, model,  torch.nn.L1Loss(size_average=False), optimizer, epoches)
