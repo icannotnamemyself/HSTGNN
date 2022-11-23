@@ -204,7 +204,12 @@ class Net(nn.Module):
             b: batch_size
             aux_dim : normally 1
             n: node num
-            p: 窗口时间维度
+            p: window length
+            
+        Return: (b, n , m)
+            b: batch_size
+            n: node num
+            m: steps
         """
         if self.seq_len<self.max_receptive_field:
             input = nn.functional.pad(input,(self.max_receptive_field-self.seq_len,0,0,0))

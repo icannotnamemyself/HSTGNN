@@ -27,7 +27,23 @@ def normal_std(x):
 
 
 
-def train_pipe(dataset:Dataset , window: int , horizon:int, device:str, scaler:Scaler, model:nn.Module, loss_func:nn.Module, optim:Optimizer,epoches:int):
+def train_pipe(dataset:Dataset , device:str, scaler:Scaler, model:nn.Module, loss_func:nn.Module, optim:Optimizer,epoches:int, batch_size=64):
+    """traning pipe line for ((n, p, m)) -> (n, )
+
+    Args:
+        dataset (Dataset): _description_
+        window (int): _description_
+        horizon (int): _description_
+        device (str): _description_
+        scaler (Scaler): _description_
+        model (nn.Module): _description_
+        loss_func (nn.Module): _description_
+        optim (Optimizer): _description_
+        epoches (int): _description_
+
+    Returns:
+        _type_: _description_
+    """
     # fit scaler
     scaler.fit(dataset.raw_tensor)
     dataset_size = len(dataset)
@@ -46,12 +62,12 @@ def train_pipe(dataset:Dataset , window: int , horizon:int, device:str, scaler:S
     
 
     # data change for every epoches
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=32, sampler=RandomSampler(train_dataset))
-    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=32,sampler=RandomSampler(val_dataset))
-    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=32,sampler=RandomSampler(test_dataset))
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, sampler=RandomSampler(train_dataset))
+    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size,sampler=RandomSampler(val_dataset))
+    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size,sampler=RandomSampler(test_dataset))
     
     
-    model = model.to()
+    model = model.to(device=device)
     
     
     nParams = sum([p.nelement() for p in model.parameters()])
@@ -74,7 +90,6 @@ def train_pipe(dataset:Dataset , window: int , horizon:int, device:str, scaler:S
         # for i, (x , _) in enumerate(test_loader): 
             
 
-        total_loss = 0
         total_loss_l1 = 0
         n_samples = 0
         predict = None
@@ -117,8 +132,6 @@ def train_pipe(dataset:Dataset , window: int , horizon:int, device:str, scaler:S
         # normed_test_tensor = scaler.transform(test_raw_tensor)
         test_rse =  normal_std(test_raw_tensor)
         test_rae = torch.mean(torch.abs(test_raw_tensor - torch.mean(test_raw_tensor)))
-        import pdb
-        pdb.set_trace()
         rse = math.sqrt(total_loss / n_samples)   / test_rse
         rae = (total_loss_l1 / n_samples)   / test_rae
 
@@ -196,4 +209,4 @@ if __name__ == "__main__":
     # optimizer=Optim(model.parameters(),'adam', 0.001, 5, lr_decay=0.00001)
     scaler = MaxAbsScaler(device)
     
-    train_pipe(dataset, window, horizon, device, scaler, model,  torch.nn.L1Loss(size_average=False), optimizer, epoches)
+    train_pipe(dataset, device, scaler, model,  torch.nn.L1Loss(size_average=False), optimizer, epoches)
