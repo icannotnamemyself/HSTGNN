@@ -31,9 +31,6 @@ class Dataset(torch.utils.data.Dataset):
     def raw_df(self):
         raise NotImplementedError()
 
-    def __getitem__(self, index: Any):
-
-        return super().__getitem__()
 
 
 @dataclass
