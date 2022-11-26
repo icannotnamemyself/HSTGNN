@@ -1,18 +1,16 @@
-from .NASA import NASA
-from .traffic import Traffic
-from .exchange_rate import ExchangeRate
-from .solar_energy import SolarEnergy
-from .electricity import Electricity
+from .traffic import Traffic, TrafficV2
+from .exchange_rate import ExchangeRate, ExchangeRateV2
+from .solar_energy import SolarEnergy, SolarEnergyV2
+from .electricity import Electricity, ElectricityV2
 
 
 __all__ = [
-    "NASA",
     "Traffic"
     "ExchangeRate"
     "SolarEnergy"
-    "Electricity"
+    "Electricity",
+    "ElectricityV2",
+    "SolarEnergyV2",
+    "ExchangeRateV2",
+    "TrafficV2",
 ]
-
-
-
-

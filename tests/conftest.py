@@ -4,6 +4,29 @@ import pyChainedProxy as socks
 
 import numpy as np
 import pandas as pd
+from torch_timeseries.datasets.dataset import TimeSeriesDataset
+
+
+
+class DummyDataset(TimeSeriesDataset):
+    name: str = 'dummy'
+    num_features:int = 100
+    sample_rate:int = 1
+    def download(self): 
+        pass
+    
+    def _load(self):
+        l = []
+        for i in range(0, 10000):
+            l.append([i]* self.num_features)
+        return np.array(l)
+
+    def _process(self):
+        return super()._process()
+
+@pytest.fixture(scope='session')
+def dummy_dataset():
+    return DummyDataset('./data')
 
 @pytest.fixture(scope='session')
 def use_proxy():
@@ -27,10 +50,4 @@ def use_proxy():
     rawsocket = socket.socket
     socket.socket = socks.socksocket
 
-
-@pytest.fixture(scope='session')
-def dummy_dataset():
-    data_len = 50000
-    data = np.array[np.arange(0,data_len), np.arange(0,data_len), np.arange(0,data_len)]
-    yield data    
 

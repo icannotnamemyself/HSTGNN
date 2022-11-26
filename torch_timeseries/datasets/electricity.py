@@ -1,12 +1,36 @@
 import os
 import resource
-from.dataset import Dataset
+from.dataset import Dataset, TimeSeriesDataset
 from typing import Any, Callable, List, Optional
 import torch
 from torchvision.datasets.utils import download_and_extract_archive, check_integrity
 import pandas as pd
-
 import numpy as np
+import torch.utils.data
+
+
+
+class ElectricityV2(TimeSeriesDataset):
+    name:str= 'electricity'
+    num_features: int = 321
+    sample_rate:int # in munites
+    
+    def download(self):
+        download_and_extract_archive(
+            "https://raw.githubusercontent.com/laiguokun/multivariate-time-series-data/master/electricity/electricity.txt.gz",
+            self.raw_dir,
+            filename="electricity.txt.gz",
+            md5="07d51dc39c404599ead932937985957b",
+        )
+        
+    def _load(self) -> np.ndarray:
+        self.file_name = os.path.join(self.raw_dir, 'electricity.txt')
+        self.raw_data = np.loadtxt(self.file_name, delimiter=',')
+        return self.raw_data
+    
+    def _process(self) -> np.ndarray:
+        return super()._process()
+    
 class Electricity(Dataset):
 
     tasks =['supervised', 'prediction', 'multi_timeseries', 'regression']
@@ -44,8 +68,6 @@ class Electricity(Dataset):
         self.download()
         
         self.file_name = os.path.join(self.raw_dir, 'electricity.txt')
-        
-
         self.raw_data = np.loadtxt(self.file_name, delimiter=',')
         self.raw_tensor = torch.from_numpy(self.raw_data)
         self.tensor = torch.from_numpy(self.raw_data)
