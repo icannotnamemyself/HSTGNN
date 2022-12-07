@@ -5,6 +5,7 @@ import os
 
 from torch_timeseries.datasets.electricity import Electricity
 from torch_timeseries.nn.net import Net, Optim
+from torch_timeseries.nn.mtcsg import MTCSG
 sys.path.insert(0, os.path.abspath('/notebooks/pytorch_timeseries'))
 from torch_timeseries.datasets import ExchangeRate
 from torch_timeseries.datasets.dataset import Dataset
@@ -20,14 +21,29 @@ import torch.optim as optim
 from torch_timeseries.data.scaler import MaxAbsScaler
 
 
+def matrix_poly(matrix, d):
+    x = torch.eye(d).double()+ torch.div(matrix, d)
+    return torch.matrix_power(x, d)
 
+
+
+def _h_A(A, m):
+    expm_A = matrix_poly(A*A, m)
+    h_A = torch.trace(expm_A) - m
+    return h_A
+
+prox_plus = torch.nn.Threshold(0.,0.)
+
+def stau(w, tau):
+    w1 = prox_plus(torch.abs(w)-tau)
+    return torch.sign(w)*w1
     
 def normal_std(x):
     return x.std() * np.sqrt((len(x) - 1.)/(len(x)))
 
 
 
-def train_pipe(dataset:Dataset , device:str, scaler:Scaler, model:nn.Module, loss_func:nn.Module, optim:Optimizer,epoches:int, batch_size=64):
+def train_pipe(dataset:Dataset , device:str, scaler:Scaler, model:nn.Module, loss_func:nn.Module, optim:Optimizer,epoches:int, batch_size=64, lambda_A=0,c_A=1, weight_threshold=0.1):
     """traning pipe line for ((n, p, m)) -> (n, )
 
     Args:
@@ -171,7 +187,12 @@ def train_pipe(dataset:Dataset , device:str, scaler:Scaler, model:nn.Module, los
             x = x.unsqueeze(1) 
             x = x.transpose(2,3 )   # torch.Size([64, 1, 321, 60])
             
+            
+            
             output = model(x) # ( b, seq_out_len, n, 1)
+            
+            
+            
             output = torch.squeeze(output) # -> ( b,n)
             
             # output = output.squeeze(dim=3) # -> ( b, seq_out_len, n)
@@ -184,11 +205,22 @@ def train_pipe(dataset:Dataset , device:str, scaler:Scaler, model:nn.Module, los
             
             ground_truth =  train_y
 
+            
+            # lagrange term
+            
+            h_A = _h_A(model.weighted_A, dataset.feature_nums)
             loss = loss_func(predict, ground_truth)
+            
+            loss +=  lambda_A * h_A + 0.5 * c_A * h_A * h_A + 100. * torch.trace(model.weighted_A*model.weighted_A)
+            
+            
             loss.backward()
             
             total_loss += loss.item()
             grad_norm = optim.step()
+            
+            
+            model.weighted_A.data.data = stau(model.weighted_A.data, weight_threshold)
             
             if iter%100==0:
                 print('iter:{:3d} | loss: {:.3f}'.format(iter,loss.item()/(output.size(0))/output.size(1)))
@@ -203,14 +235,36 @@ def train_pipe(dataset:Dataset , device:str, scaler:Scaler, model:nn.Module, los
             
             
 if __name__ == "__main__":
-    device = 'cuda:0'
+    device = 'cuda:1'
     window = 168
     horizon = 3
     epoches = 50
     dataset = Electricity(root='./data', window=window, horizon=horizon)
-    model = Net(input_node=dataset.feature_nums,seq_len=dataset.window,in_dim=1, embed_dim=8, middle_channel=8, seq_out=1,dilation_exponential=2, layers=5)
+    model = MTCSG(node_num=dataset.feature_nums,seq_len=dataset.window,in_dim=1, middle_channel=64, seq_out=1)
     optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=0.0001)
     # optimizer=Optim(model.parameters(),'adam', 0.001, 5, lr_decay=0.00001)
     scaler = MaxAbsScaler(device)
     
-    train_pipe(dataset, device, scaler, model,  torch.nn.L1Loss(size_average=False), optimizer, epoches)
+    c_A = 1
+    lambda_A = 0
+    
+    total_runs = 3
+    k_max_iter = 3
+    h_A_new = torch.tensor(1.)
+    
+    # for i in range(total_runs):
+    for step_k in range(k_max_iter):
+        while c_A < 1e+20:
+            
+            train_pipe(dataset, device, scaler, model,  torch.nn.L1Loss(size_average=False), optimizer, epoches, c_A =c_A ,lambda_A=lambda_A)
+            
+            # update parameters
+            A_new = model.weighted_A.data.clone()
+            h_A_new = _h_A(A_new, dataset.feature_nums)
+            if h_A_new.item() > 0.25 * model.h_A:
+                c_A*=10
+            else:
+                break
+        
+        model.h_A = h_A_new.item()
+        lambda_A += c_A * h_A_new.item()

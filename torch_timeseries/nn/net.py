@@ -122,7 +122,7 @@ class LayerNorm(nn.Module):
 
 
 class Net(nn.Module):
-    def __init__(self, input_node:int,seq_len:int,in_dim:int, embed_dim:int, middle_channel=32, seq_out:int=1,dilation_exponential=1, layers=3, dropout=0.3) -> None:
+    def __init__(self, input_node:int,seq_len:int,in_dim:int, embed_dim:int, middle_channel=32, seq_out:int=1,dilation_exponential=2, layers=3, dropout=0.3) -> None:
         super().__init__()
         
         self.input_node = input_node

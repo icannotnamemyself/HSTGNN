@@ -23,6 +23,10 @@ class Dataset(torch.utils.data.Dataset):
             single_step (bool, optional): True for single_step data, False for multi_steps data. Defaults to True.
         """
         super().__init__()
+        
+        self.raw_tensor : Tensor 
+        self.window:int
+        self.num_nodes:int
 
     def download(self):
         r"""Downloads the dataset to the :obj:`self.raw_dir` folder."""
@@ -31,7 +35,8 @@ class Dataset(torch.utils.data.Dataset):
     def raw_df(self):
         raise NotImplementedError()
 
-
+    def __len__(self):
+        return len(self.raw_tensor)
 
 @dataclass
 class TimeSeriesDatasetDescription:
