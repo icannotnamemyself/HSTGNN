@@ -1,16 +1,24 @@
-from .traffic import Traffic, TrafficV2
-from .exchange_rate import ExchangeRate, ExchangeRateV2
-from .solar_energy import SolarEnergy, SolarEnergyV2
-from .electricity import Electricity, ElectricityV2
+from .traffic import Traffic
+from .exchange_rate import ExchangeRate
+from .solar_energy import SolarEnergy
+from .electricity import Electricity
+from .ETTh1 import ETTh1
+from .ETTh2 import ETTh2
+from .ETTm1 import ETTm1
+from .ILI import ILI
+from .weather import Weather
+from .ETTm2 import ETTm2
 
 
 __all__ = [
-    "Traffic"
-    "ExchangeRate"
-    "SolarEnergy"
+    "Traffic",
+    "ExchangeRate",
+    "SolarEnergy",
     "Electricity",
-    "ElectricityV2",
-    "SolarEnergyV2",
-    "ExchangeRateV2",
-    "TrafficV2",
+    "ETTh1",
+    "ETTh2",
+    "ETTm1",
+    "ETTm2",
+    "ILI",
+    "Weather"
 ]

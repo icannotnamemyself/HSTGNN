@@ -8,12 +8,29 @@ import os
 from torchvision.datasets.utils import download_and_extract_archive, check_integrity
 from abc import ABC, abstractmethod
 
+from torch_timeseries.data.scaler import MaxAbsScaler, Scaler, StoreType
+
+
+from enum import Enum, unique
+
+@unique
+class Freq(str, Enum):
+   seconds = 's'
+   minutes = 't'
+   hours = 'h'
+   days = 'd'
+   months = 'm'
+   years = 'y'
+
+
 
 class Dataset(torch.utils.data.Dataset):
-    feature_nums = 0
+    name:str 
+    num_features: int
+    length :int 
+    freq : Freq 
 
-    def __init__(self, root: str, transform: Optional[Callable] = None,
-                 target_transform: Optional[Callable] = None, single_step=True):
+    def __init__(self, root: str, scaler: Scaler = MaxAbsScaler()):
         """_summary_
 
         Args:
@@ -24,68 +41,45 @@ class Dataset(torch.utils.data.Dataset):
         """
         super().__init__()
         
-        self.raw_tensor : Tensor 
-        self.window:int
-        self.num_nodes:int
+        self.data : np.ndarray
+        self.df : pd.DataFrame
 
     def download(self):
-        r"""Downloads the dataset to the :obj:`self.raw_dir` folder."""
+        r"""Downloads the dataset to the :obj:`self.dir` folder."""
         raise NotImplementedError
 
-    def raw_df(self):
-        raise NotImplementedError()
-
     def __len__(self):
-        return len(self.raw_tensor)
-
-@dataclass
-class TimeSeriesDatasetDescription:
-    name: str
-    num_features: int
-    sample_rate: int
+        return len(self.data)
 
 
 # StoreTypes = Union[np.ndarray, Tensor]
 StoreTypes = np.ndarray
 
 
-class TimeSeriesDataset(ABC):
-    name: str
-    num_features: int
-    sample_rate: int
-
-    def __init__(self, root: str, transform: Optional[Callable] = None,
-                 pre_transform: Optional[Callable] = None):
+class TimeSeriesDataset(Dataset): 
+    def __init__(self, root: str):
         """_summary_
 
         Args:
             root (str): data save location
-            transform (Optional[Callable], optional): . Defaults to None.
-            pre_transform (Optional[Callable], optional): . Defaults to None.
 
         """
-        super().__init__()
+        super().__init__(root)
         self.root = root
-        self.transform = transform
-        self.pre_transform = pre_transform
-
-        self.raw_dir = os.path.join(root, self.name, 'raw',)
-        self.processed_dir = os.path.join(root, self.name, 'processed')
-        os.makedirs(self.raw_dir, exist_ok=True)
-        os.makedirs(self.processed_dir, exist_ok=True)
+        self.dir = os.path.join(root, self.name)
+        os.makedirs(self.dir, exist_ok=True)
 
         self.download()
-        self.raw_data = self._load()  # load to self.data
-        self.data = self._process()  # process data may save to processed_dir
-
+        self._load()
+        
     @abstractmethod
     def download(self):
-        r"""Downloads the dataset to the :obj:`self.raw_dir` folder."""
+        r"""Downloads the dataset to the :obj:`self.dir` folder."""
         raise NotImplementedError
 
     @abstractmethod
     def _load(self) -> StoreTypes:
-        """Loads the dataset to the :attr:`self.raw_data` .
+        """Loads the dataset to the :attr:`self.data` .
 
         Raises:
             NotImplementedError: _description_
@@ -95,13 +89,3 @@ class TimeSeriesDataset(ABC):
         """
 
         raise NotImplementedError
-
-    @abstractmethod
-    def _process(self) -> StoreTypes:
-        r"""Downloads the dataset to the :attr:`self.data` ."""
-        data = self.raw_data
-        if self.pre_transform is not None:
-            data = self.pre_transform(data)
-        if self.transform is not None:
-            data = self.transform(data)
-        return data

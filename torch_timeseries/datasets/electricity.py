@@ -3,100 +3,40 @@ import resource
 from.dataset import Dataset, TimeSeriesDataset
 from typing import Any, Callable, List, Optional
 import torch
-from torchvision.datasets.utils import download_and_extract_archive, check_integrity
+from torchvision.datasets.utils import download_and_extract_archive, check_integrity, download_url
 import pandas as pd
 import numpy as np
 import torch.utils.data
 
 
 
-class ElectricityV2(TimeSeriesDataset):
+class Electricity(TimeSeriesDataset):
+    """The raw dataset is in https://archive.ics.uci.edu/ml/datasets/ElectricityLoadDiagrams20112014. 
+    It is the electricity consumption in kWh was recorded every 15 minutes from 2011 to 2014.
+    Because the some dimensions are equal to 0. So we eliminate the records in 2011.
+    Final we get data contains electircity consumption of 321 clients from 2012 to 2014. 
+    And we converted the data to reflect hourly consumption.
+    
+    due to the missing data , we use the data processed in paper
+    《H. Wu, T. Hu, Y. Liu, H. Zhou, J. Wang, and M. Long, “TimesNet: Temporal 2D-Variation Modeling for General Time Series Analysis.”》
+    
+    """
     name:str= 'electricity'
     num_features: int = 321
-    sample_rate:int # in munites
+    freq: str = 't' # in minuts
+    length :int = 26304
     
     def download(self):
-        download_and_extract_archive(
-            "https://raw.githubusercontent.com/laiguokun/multivariate-time-series-data/master/electricity/electricity.txt.gz",
-            self.raw_dir,
-            filename="electricity.txt.gz",
-            md5="07d51dc39c404599ead932937985957b",
+        download_url(
+            "https://raw.githubusercontent.com/wayne155/multivariate_timeseries_datasets/main/electricity/electricity.csv",
+            self.dir,
+            filename="electricity.csv",
+            md5="a1973ba4f4bed84136013ffa1ca27dc8",
         )
         
     def _load(self) -> np.ndarray:
-        self.file_name = os.path.join(self.raw_dir, 'electricity.txt')
-        self.raw_data = np.loadtxt(self.file_name, delimiter=',')
-        return self.raw_data
+        self.file_name = os.path.join(self.dir, 'electricity.csv')
+        self.df = pd.read_csv(self.file_name, parse_dates=['date'])
+        self.data = self.df.drop("date", axis=1).values
+        return self.data
     
-    def _process(self) -> np.ndarray:
-        return super()._process()
-    
-class Electricity(Dataset):
-
-    tasks =['supervised', 'prediction', 'multi_timeseries', 'regression']
-    
-    url = "https://github.com/laiguokun/multivariate-time-series-data"
-    feature_nums = 321
-    resources = {
-        'electricity.txt.gz': '07d51dc39c404599ead932937985957b'
-    }
-
-    def __init__(self, root: str, transform: Optional[Callable] = None,
-                 pre_transform: Optional[Callable] = None, window=10, horizon=1):
-        """
-        data from this github repo: https://github.com/laiguokun/multivariate-time-series-data
-
-        Args:
-            root (str): the data directory to save
-            transform (Optional[Callable], optional): . Defaults to None.
-            pre_transform (Optional[Callable], optional): . Defaults to None.
-        """
-        super().__init__(root, transform, pre_transform)
-        self.window = window
-        self.horizon = horizon
-        # TODO: 解决感受野 大于 时间长度时的问题
-        
-        self.dataset_name = 'electricity'
-
-
-        
-        self.raw_dir = os.path.join(root, self.dataset_name, 'raw',)
-        self.processed_dir = os.path.join(root, self.dataset_name, 'processed')
-
-        os.makedirs(self.raw_dir, exist_ok=True)
-        os.makedirs(self.processed_dir, exist_ok=True)
-        self.download()
-        
-        self.file_name = os.path.join(self.raw_dir, 'electricity.txt')
-        self.raw_data = np.loadtxt(self.file_name, delimiter=',')
-        self.raw_tensor = torch.from_numpy(self.raw_data)
-        self.tensor = torch.from_numpy(self.raw_data)
-        
-        self.num_nodes = len(self.raw_df().columns)
-
-        
-    # def __process(self):
-    #     for i in range(0, len(self.raw_tensor) -self.window - self.horizon + 1):
-    #         self.X[i] = self.raw_tensor[i:i+self.window]
-            # self.Y[i] = self.raw_tensor[self.window + self.horizon - 1 + i]
-        
-    def __len__(self):
-        return len(self.tensor) -self.window - self.horizon + 1
-        
-    def __getitem__(self, index: Any):
-        return self.tensor[index:index+self.window] , self.tensor[self.window + self.horizon - 1 + index]
-        
-    def raw_df(self) -> pd.DataFrame:
-        return pd.read_csv(os.path.join(self.raw_dir, 'electricity.txt'), sep=',', header=None)
-    
-    def download(self) -> None:
-        download_and_extract_archive(
-            "https://raw.githubusercontent.com/laiguokun/multivariate-time-series-data/master/electricity/electricity.txt.gz",
-            self.raw_dir,
-            filename="electricity.txt.gz",
-            md5="07d51dc39c404599ead932937985957b",
-        )
-        
-        
-    
-        

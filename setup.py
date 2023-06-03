@@ -28,7 +28,7 @@ setup(
     version=__version__,
     description='Timeseries Learning Library for PyTorch',
     author='Weiwei Ye',
-    author_email='theoye888@gmail.com',
+    author_email='wwye155@gmail.com',
     url=URL,
     download_url=f'{URL}/archive/{__version__}.tar.gz',
     keywords=[

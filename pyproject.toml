@@ -2,7 +2,7 @@
 name = "pytorch_timeseries"
 version = "0.0.0+20220627214400"
 description = "Timeseries Learning Library for PyTorch"
-authors = ["wayne <theoye888@gmail.com>"]
+authors = ["wayne <wwye155@gmail.com>"]
 license = "MIT"
 readme = "README.md"
 
