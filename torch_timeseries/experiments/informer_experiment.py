@@ -164,8 +164,9 @@ class InformerExperiment(Experiment):
             vali_loss = self.vali(self.val_loader, criterion)
             test_loss = self.vali(self.test_loader, criterion)
 
-            if self.wandb:
-                wandb.log({"vali_loss": vali_loss, "test_loss": test_loss}, step=epoch)
+            # if self.wandb:
+            #     wandb.run.summary["best_accuracy"] = test_accuracy
+            #     wandb.log({"vali_loss": vali_loss, "test_loss": test_loss}, step=epoch)
 
             print(
                 "Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f} Test Loss: {4:.7f}".format(

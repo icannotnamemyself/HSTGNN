@@ -1,54 +1,103 @@
 import random
 import time
-from typing import Dict, Type, Union
+from typing import Dict, Type
 import numpy as np
 import torch
 from torch_timeseries.data.scaler import MaxAbsScaler, Scaler
-from torch_timeseries.datasets import ETTm1
+from torch_timeseries.datasets import *
 from torch_timeseries.datasets.dataset import TimeSeriesDataset
 from torch_timeseries.datasets.splitter import SequenceSplitter
 from torch_timeseries.datasets.wrapper import MultiStepTimeFeatureSet
-from torch_timeseries.nn.Informer import Informer
-from torch.nn import MSELoss
+from torch_timeseries.experiments.experiment import Experiment
+from torch_timeseries.nn.mtgnn import MTGNN
+from torch.nn import MSELoss, L1Loss
 from omegaconf import OmegaConf
 
 from torch.optim import Optimizer, Adam
 
+import wandb
 
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 
 @dataclass
-class Settings:
-    dataset_type: str
-    optm_type: str = "Adam"
-    scaler_type: str = "MaxAbsScaler"
-    hoziron : int = 3
-    batch_size: int = 64
-    pred_len: int = 3
-    data_path: str = "./data"
-    device: str = "cuda:0"
-    windows: int = 168
-    lr: float = 0.001
-    seed: int = 1
-    epochs: int = 1
-    wandb: bool = True
+class MTGNNExperiment(Experiment):
+    model_type: str = "MTGNN"
+    gcn_true : bool = True
+    gcn_depth : int = 3
+    dropout:float=0.3
+    subgraph_size:int=20
+    node_dim:int=40
+    dilation_exponential:float=1
+    conv_channels:int=32
+    residual_channels:int=32
+    skip_channels:int=64
+    end_channels:int=128
+    seq_length:int=12
+    in_dim:int=1
+    # out_dim:int=12
+    layers:int=3
+    propalpha: float=0.05
+    tanhalpha : float=3
+    layer_norm_affline : bool =True
+    skip_layer : bool =True
+    residual_layer: bool =True
 
 
-class Experiment(Settings):
+    def config_wandb(self):
+        if self.wandb is True:
+            run = wandb.init(
+                project="project",
+                name="MTGNN",
+                notes="MTGNN",
+                tags=["baseline", "forcast"],
+            )
+            wandb.config.update(asdict(self))
+
     def init(self):
-        assert self.pred_len >= self.label_len
 
         self.reproducible()
 
-        self.model = self._parse_type(self.model_type)().to(self.device)
+        self.config_wandb()
+        #  2. Capture a dictionary of hyperparameters
 
         self.dataset = MultiStepTimeFeatureSet(
             self._parse_type(self.dataset_type)(root=self.data_path),
-            self.scaler_type(),
+            self._parse_type(self.scaler_type)(),
+            horizon=self.hoziron,
             window=self.windows,
             steps=self.pred_len,
         )
+
+        assert self.subgraph_size <= self.dataset.num_features, f"graph size {self.subgraph_size} have to be bigger than data columns :{self.dataset.num_features}"
+        self.model = MTGNN(
+            gcn_true=self.gcn_true,
+            buildA_true=True,
+            gcn_depth=self.gcn_depth,
+            num_nodes=self.dataset.num_features,
+            device=self.device,
+            predefined_A=None,
+            static_feat=None,
+            dropout=self.dropout,
+            subgraph_size=self.subgraph_size,
+            node_dim=self.node_dim,
+            dilation_exponential=self.dilation_exponential,
+            conv_channels=self.conv_channels,
+            residual_channels=self.residual_channels,
+            skip_channels=self.skip_channels,
+            end_channels=self.end_channels,
+            seq_length=self.windows,
+            in_dim=self.in_dim,
+            out_dim=self.pred_len,
+            layers=self.layers,
+            propalpha=self.propalpha,
+            tanhalpha=self.tanhalpha,
+            layer_norm_affline=self.layer_norm_affline,
+            skip_layer=self.skip_layer,
+            residual_layer=self.residual_layer,
+        )
+        self.model = self.model.to(self.device)
+
         self.model_optim = self._parse_type(self.optm_type)(
             self.model.parameters(), lr=self.lr
         )
@@ -58,24 +107,6 @@ class Experiment(Settings):
         self.train_steps = len(self.train_loader)
         self.loss_func = MSELoss()
 
-    def _parse_type(self, str_or_type: Union[Type, str]) -> Type:
-        if isinstance(str_or_type, str):
-            return eval(str_or_type)
-        elif isinstance(str_or_type, type):
-            return str_or_type
-        else:
-            raise RuntimeError(f"{str_or_type} should be string or type")
-
-    def reproducible(self):
-        # for reproducibility
-        torch.set_default_tensor_type(torch.DoubleTensor)
-        torch.manual_seed(self.seed)
-        torch.cuda.manual_seed(self.seed)
-        np.random.seed(self.seed)
-        random.seed(self.seed)
-        # torch.use_deterministic_algorithms(True)
-        torch.backends.cudnn.benchmark = False
-
     def vali(self, vali_loader, criterion):
         self.model.eval()
         total_loss = []
@@ -83,9 +114,9 @@ class Experiment(Settings):
             pred, true = self._process_one_batch(
                 batch_x, batch_y, batch_x_mark, batch_y_mark
             )
-            loss = criterion(pred.detach().cpu(), true.detach().cpu())
+            loss = criterion(pred, true)
             total_loss.append(loss)
-        total_loss = np.average(total_loss)
+        total_loss = np.average(torch.Tensor(total_loss).cpu())
         return total_loss
 
     def _process_one_batch(self, batch_x, batch_y, batch_x_date_enc, batch_y_date_enc):
@@ -94,18 +125,14 @@ class Experiment(Settings):
         batch_x_date_enc = batch_x_date_enc.to(self.device)
         batch_y_date_enc = batch_y_date_enc.to(self.device)
 
-        dec_inp_pred = torch.zeros(
-            [batch_x.size(0), self.pred_len, self.dataset.num_features]
-        ).to(self.device)
-        dec_inp_label = batch_x[:, -self.label_len :, :].to(self.device)
 
-        dec_inp = torch.cat([dec_inp_label, dec_inp_pred], dim=1)
-        dec_inp_date_enc = torch.cat(
-            [batch_x_date_enc[:, -self.label_len :, :], batch_y_date_enc], dim=1
-        )
-        outputs = self.model(batch_x, batch_x_date_enc, dec_inp, dec_inp_date_enc)
+        input_x = batch_x.unsqueeze(1) 
+        input_x = input_x.transpose(2,3 )   # torch.Size([batch_size, 1, num_nodes, windows])
+        outputs = self.model(input_x)
+        
+        
         pred = self.dataset.inverse_transform(outputs)
-
+        pred = pred.squeeze()
         return pred, batch_y
 
     def test():
@@ -139,13 +166,21 @@ class Experiment(Settings):
                         )
                     )
 
+                if self.wandb:
+                    wandb.log({"loss": loss.item()}, step=i)
+
                 loss.backward()
                 self.model_optim.step()
+                break
 
             print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
             train_loss = np.average(train_loss)
             vali_loss = self.vali(self.val_loader, criterion)
             test_loss = self.vali(self.test_loader, criterion)
+
+            # if self.wandb:
+            #     wandb.run.summary["best_accuracy"] = test_accuracy
+            #     wandb.log({"vali_loss": vali_loss, "test_loss": test_loss}, step=epoch)
 
             print(
                 "Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f} Test Loss: {4:.7f}".format(
@@ -155,27 +190,24 @@ class Experiment(Settings):
 
 
 def main():
-    exp = Experiment(
+    exp = MTGNNExperiment(
         dataset_type="ETTm1",
         data_path="./data",
         optm_type="Adam",
-        model_type="Informer",
         batch_size=32,
         device="cuda:1",
         windows=10,
-        label_len=2,
         epochs=1,
         lr=0.001,
+        hoziron=3,
         pred_len=3,
+        subgraph_size=6,
         seed=1,
         scaler_type="MaxAbsScaler",
+        wandb=False
     )
 
-    conf = OmegaConf.structured(exp)
-    print(OmegaConf.to_yaml(conf))
-
-    # exp = Experiment(settings)
-    # exp.run()
+    exp.run()
 
 
 if __name__ == "__main__":
