@@ -1,6 +1,6 @@
 import random
 import time
-from typing import Dict, Type, Union
+from typing import Dict, Type
 import numpy as np
 import torch
 from torch_timeseries.data.scaler import MaxAbsScaler, Scaler
@@ -8,47 +8,79 @@ from torch_timeseries.datasets import ETTm1
 from torch_timeseries.datasets.dataset import TimeSeriesDataset
 from torch_timeseries.datasets.splitter import SequenceSplitter
 from torch_timeseries.datasets.wrapper import MultiStepTimeFeatureSet
+from torch_timeseries.experiments.experiment import Experiment
 from torch_timeseries.nn.Informer import Informer
-from torch.nn import MSELoss
+from torch.nn import MSELoss, L1Loss
 from omegaconf import OmegaConf
 
 from torch.optim import Optimizer, Adam
 
+import wandb
 
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 
 @dataclass
-class Settings:
-    dataset_type: str
-    optm_type: str = "Adam"
-    scaler_type: str = "MaxAbsScaler"
+class InformerExperiment(Experiment):
+    model_type: str = "Informer"
+    label_len: int = 2
 
-    batch_size: int = 64
-    pred_len: int = 3
-    data_path: str = "./data"
-    device: str = "cuda:0"
-    windows: int = 168
-    lr: float = 0.001
-    seed: int = 1
-    epochs: int = 1
-    wandb: bool = False
+    factor: int = 5
+    d_model: int = 512
+    n_heads: int = 8
+    e_layers: int = 2
+    d_layer: int = 512
+    d_ff: int = 512
+    dropout: float = 0.0
+    attn: str = "prob"
+    embed: str = "fixed"
+    activation = "gelu"
+    distil: bool = True
+    mix: bool = True
 
+    def config_wandb(self):
+        if self.wandb is True:
+            run = wandb.init(
+                project="informer",
+                name="MyfirstRun",
+                notes="test first run",
+                tags=["baseline", "informer"],
+            )
+            wandb.config.update(asdict(self))
 
-class Experiment(Settings):
     def init(self):
-        assert self.pred_len >= self.label_len
+        assert self.pred_len >= self.label_len, f"{self.pred_len} < {self.label_len}"
 
         self.reproducible()
 
-        self.model = self._parse_type(self.model_type)().to(self.device)
+        self.config_wandb()
+        #  2. Capture a dictionary of hyperparameters
 
         self.dataset = MultiStepTimeFeatureSet(
             self._parse_type(self.dataset_type)(root=self.data_path),
-            self.scaler_type(),
+            self._parse_type(self.scaler_type)(),
             window=self.windows,
             steps=self.pred_len,
         )
+
+        self.model = Informer(
+            self.dataset.num_features,
+            self.dataset.num_features,
+            self.dataset.num_features,
+            self.pred_len,
+            factor=self.factor,
+            d_model=self.d_model,
+            n_heads=self.n_heads,
+            e_layers=self.e_layers,
+            dropout=self.dropout,
+            attn=self.attn,
+            embed=self.embed,
+            activation=self.activation,
+            distil=self.distil,
+            mix=self.mix,
+        )
+        self.model = self.model.to(self.device)
+
         self.model_optim = self._parse_type(self.optm_type)(
             self.model.parameters(), lr=self.lr
         )
@@ -57,24 +89,6 @@ class Experiment(Settings):
         self.train_loader, self.val_loader, self.test_loader = self.srs(self.dataset)
         self.train_steps = len(self.train_loader)
         self.loss_func = MSELoss()
-
-    def _parse_type(self, str_or_type: Union[Type, str]) -> Type:
-        if isinstance(str_or_type, str):
-            return eval(str_or_type)
-        elif isinstance(str_or_type, type):
-            return str_or_type
-        else:
-            raise RuntimeError(f"{str_or_type} should be string or type")
-
-    def reproducible(self):
-        # for reproducibility
-        torch.set_default_tensor_type(torch.DoubleTensor)
-        torch.manual_seed(self.seed)
-        torch.cuda.manual_seed(self.seed)
-        np.random.seed(self.seed)
-        random.seed(self.seed)
-        # torch.use_deterministic_algorithms(True)
-        torch.backends.cudnn.benchmark = False
 
     def vali(self, vali_loader, criterion):
         self.model.eval()
@@ -139,6 +153,9 @@ class Experiment(Settings):
                         )
                     )
 
+                if self.wandb:
+                    wandb.log({"loss": loss.item()}, step=i)
+
                 loss.backward()
                 self.model_optim.step()
 
@@ -146,6 +163,9 @@ class Experiment(Settings):
             train_loss = np.average(train_loss)
             vali_loss = self.vali(self.val_loader, criterion)
             test_loss = self.vali(self.test_loader, criterion)
+
+            if self.wandb:
+                wandb.log({"vali_loss": vali_loss, "test_loss": test_loss}, step=epoch)
 
             print(
                 "Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f} Test Loss: {4:.7f}".format(
@@ -155,11 +175,10 @@ class Experiment(Settings):
 
 
 def main():
-    exp = Experiment(
+    exp = InformerExperiment(
         dataset_type="ETTm1",
         data_path="./data",
         optm_type="Adam",
-        model_type="Informer",
         batch_size=32,
         device="cuda:1",
         windows=10,
@@ -171,11 +190,7 @@ def main():
         scaler_type="MaxAbsScaler",
     )
 
-    conf = OmegaConf.structured(exp)
-    print(OmegaConf.to_yaml(conf))
-
-    # exp = Experiment(settings)
-    # exp.run()
+    exp.run()
 
 
 if __name__ == "__main__":
