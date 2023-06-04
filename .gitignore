@@ -1,8 +1,9 @@
 
-
+data
 data/*
 dist
 build
+.vscode
 
 run
 logs
