@@ -13,6 +13,7 @@ import torch.utils.data
 class ETTh2(TimeSeriesDataset):
     name:str= 'ETTh2'
     freq : Freq = 'h'
+    num_features: int = 7
     sample_rate:int # in munites
     length : int  = 17420
     

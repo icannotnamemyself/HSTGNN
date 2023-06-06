@@ -1,12 +1,13 @@
+import os
 import random
 import time
 from typing import Dict, Type, Union
 import numpy as np
 import torch
-from torch_timeseries.data.scaler import MaxAbsScaler, Scaler
-from torch_timeseries.datasets import ETTm1
+from torch_timeseries.data.scaler import *
+from torch_timeseries.datasets import *
 from torch_timeseries.datasets.dataset import TimeSeriesDataset
-from torch_timeseries.datasets.splitter import SequenceSplitter
+from torch_timeseries.datasets.splitter import SequenceRandomSplitter, SequenceSplitter
 from torch_timeseries.datasets.wrapper import MultiStepTimeFeatureSet
 from torch_timeseries.nn.Informer import Informer
 from torch.nn import MSELoss
@@ -23,16 +24,22 @@ class Settings:
     dataset_type: str
     optm_type: str = "Adam"
     scaler_type: str = "MaxAbsScaler"
-    hoziron : int = 3
+    horizon: int = 3
     batch_size: int = 64
-    pred_len: int = 3
+    pred_len: int = 1
     data_path: str = "./data"
     device: str = "cuda:0"
-    windows: int = 168
-    lr: float = 0.001
-    seed: int = 1
+    windows: int = 368
+    lr: float = 0.0003
+    seed: int = 42
     epochs: int = 1
     wandb: bool = True
+
+    model_type: str = "Informer"
+    load_model_path: str = "./results"
+    save_dir: str = "./results"
+    l2_weight_decay: float = 0
+    experiment_label: str = str(int(time.time()))
 
 
 class Experiment(Settings):
@@ -40,23 +47,53 @@ class Experiment(Settings):
         assert self.pred_len >= self.label_len
 
         self.reproducible()
+        self._init_data_loader()
 
-        self.model = self._parse_type(self.model_type)().to(self.device)
+        self._init_model_optm_loss()
 
+        self._init_checkpoint()
+
+    def _init_data_loader(self):
         self.dataset = MultiStepTimeFeatureSet(
             self._parse_type(self.dataset_type)(root=self.data_path),
-            self.scaler_type(),
+            self._parse_type(self.scaler_type)(),
+            horizon=self.horizon,
             window=self.windows,
             steps=self.pred_len,
+            freq="h",
         )
+        self.srs = SequenceRandomSplitter(
+            train_ratio=0.7,
+            val_ratio=0.2,
+            test_ratio=0.1,
+            batch_size=self.batch_size,
+            shuffle_train=True,
+        )
+        self.train_loader, self.val_loader, self.test_loader = self.srs(self.dataset)
+        self.train_steps = self.srs.train_size
+        self.val_steps = self.srs.val_size
+        self.test_steps = self.srs.test_size
+
+    def _init_model_optm_loss(self):
+        self.model = self._parse_type(self.model_type)().to(self.device)
         self.model_optim = self._parse_type(self.optm_type)(
             self.model.parameters(), lr=self.lr
         )
 
-        self.srs = SequenceSplitter(batch_size=self.batch_size)
-        self.train_loader, self.val_loader, self.test_loader = self.srs(self.dataset)
-        self.train_steps = len(self.train_loader)
         self.loss_func = MSELoss()
+
+    def _init_checkpoint(self):
+        # self.checkpoint_path  = os.path.join( os.path.join(os.path.join(self.save_dir, f"{self.model_type}"), self.dataset_type), self.experiment_label)
+        self.checkpoint_path = os.path.join(
+            self.save_dir, f"{self.model_type}/{self.dataset_type}"
+        )
+        self.checkpoint_filepath = os.path.join(
+            self.checkpoint_path, f"{self.experiment_label}.pth"
+        )
+        self.app_state = {
+            "model": self.model,
+            "optimizer": self.model_optim,
+        }
 
     def _parse_type(self, str_or_type: Union[Type, str]) -> Type:
         if isinstance(str_or_type, str):
@@ -65,6 +102,22 @@ class Experiment(Settings):
             return str_or_type
         else:
             raise RuntimeError(f"{str_or_type} should be string or type")
+
+    def _save(self, epoch):
+        self.app_state.update({"epoch": epoch})
+
+        # 检查目录是否存在
+        if not os.path.exists(self.checkpoint_path):
+            # 如果目录不存在，则创建新目录
+            os.makedirs(self.checkpoint_path)
+            print(f"Directory '{self.checkpoint_path}' created successfully.")
+
+        torch.save(self.app_state, self.checkpoint_filepath)
+
+    def _load_from_checkpoint(self, model_path):
+        checkpoint = torch.load(model_path, map_location=self.device)
+        self.model = checkpoint["model"]
+        self.model_optim = checkpoint["optimizer"]
 
     def reproducible(self):
         # for reproducibility
@@ -105,8 +158,9 @@ class Experiment(Settings):
         )
         outputs = self.model(batch_x, batch_x_date_enc, dec_inp, dec_inp_date_enc)
         pred = self.dataset.inverse_transform(outputs)
+        batch_y = self.dataset.inverse_transform(batch_y)
 
-        return pred, batch_y
+        return pred.squeeze(), batch_y.squeeze()
 
     def test():
         pass
@@ -161,7 +215,7 @@ def main():
         optm_type="Adam",
         model_type="Informer",
         batch_size=32,
-        device="cuda:1",
+        device="cuda:3",
         windows=10,
         label_len=2,
         epochs=1,

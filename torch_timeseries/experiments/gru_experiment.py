@@ -5,16 +5,16 @@ import numpy as np
 import torch
 from torchmetrics import MeanSquaredError, MetricCollection
 from tqdm import tqdm
-from torch_timeseries.data.scaler import MaxAbsScaler, Scaler
+from torch_timeseries.data.scaler import MaxAbsScaler, Scaler, StandarScaler
 from torch_timeseries.datasets import ETTm1
 from torch_timeseries.datasets.dataset import TimeSeriesDataset
 from torch_timeseries.datasets.splitter import SequenceSplitter
 from torch_timeseries.datasets.wrapper import MultiStepTimeFeatureSet
 from torch_timeseries.experiments.experiment import Experiment
 from torch_timeseries.nn.Informer import Informer
-from torch.nn import MSELoss, L1Loss
+from torch.nn import MSELoss, L1Loss, GRU
 from omegaconf import OmegaConf
-
+import torch.nn as nn
 from torch.optim import Optimizer, Adam
 
 import wandb
@@ -24,28 +24,38 @@ from dataclasses import dataclass, asdict
 from torch_timeseries.nn.metric import R2, Corr
 
 
+class MyGRU(nn.Module):
+    def __init__(self, n_nodes,input_seq_len, casting_dim, dropout, out_len, num_layers=2) -> None:
+        super().__init__()
+        self.gru = nn.GRU(
+            input_size=n_nodes, hidden_size=casting_dim,num_layers=num_layers, batch_first=True,   dropout=dropout
+        )
+
+        self.time_decoder = nn.Linear(input_seq_len, out_len)
+        self.node_layer = nn.Linear(casting_dim, n_nodes)
+    
+    def forward(self, input):
+
+        output, _ = self.gru(input)  # (batch, seq_len, hidden_dim)
+        output = output.transpose(1, 2)
+        output = self.time_decoder(output)  # (batch, hidden_dim, out_len)
+        output = output.transpose(1, 2)
+        output = self.node_layer(output)  # (batch, out_len, n_nodes)
+        output = output.squeeze(1)  # (B, N) or (B, out_len, N)
+        return output
+
 @dataclass
-class InformerExperiment(Experiment):
-    model_type: str = "Informer"
-    label_len: int = 2
-
-    factor: int = 5
-    d_model: int = 512
-    n_heads: int = 8
-    e_layers: int = 2
-    d_layer: int = 512
-    d_ff: int = 512
-    dropout: float = 0.0
-    attn: str = "prob"
-    embed: str = "fixed"
-    activation = "gelu"
-    distil: bool = True
-    mix: bool = True
-
+class GRUExperiment(Experiment):
+    model_type: str = "GRU"
+    hidden_size :int = 512
+    dropout:float = 0.1
+    num_layers:float = 2
+    
+    
     def config_wandb(self):
         if self.wandb is True:
             run = wandb.init(
-                project="informer",
+                project="GRU",
                 name="MyfirstRun",
                 notes="test first run",
                 tags=["baseline", "informer"],
@@ -53,22 +63,7 @@ class InformerExperiment(Experiment):
             wandb.config.update(asdict(self))
 
     def _init_model_optm_loss(self):
-        self.model = Informer(
-            self.dataset.num_features,
-            self.dataset.num_features,
-            self.dataset.num_features,
-            self.pred_len,
-            factor=self.factor,
-            d_model=self.d_model,
-            n_heads=self.n_heads,
-            e_layers=self.e_layers,
-            dropout=self.dropout,
-            attn=self.attn,
-            embed=self.embed,
-            activation=self.activation,
-            distil=self.distil,
-            mix=self.mix,
-        )
+        self.model = MyGRU(self.dataset.num_features,self.windows, self.hidden_size, dropout=self.dropout,num_layers=self.num_layers,out_len=self.pred_len)
         self.model = self.model.to(self.device)
 
         self.model_optim = self._parse_type(self.optm_type)(
@@ -125,38 +120,23 @@ class InformerExperiment(Experiment):
             )
             self.metrics.update(preds, truths)
 
-        # metric_computes = list(map(lambda key: (key,self.metrics[key].compute()), self.metrics.keys()))
-        # import pdb; pdb.set_trace()
         val_res_str = " | ".join(
             [
                 f"{name}: {round(float(metric.compute()), 4)}"
                 for name, metric in self.metrics.items()
             ]
         )
-        # val_res_str = " | ".join(["{}: {:.4f}±{:.4f}" for _ in self.metrics.keys()])
-
         return val_res_str
 
     def _process_one_batch(self, batch_x, batch_y, batch_x_date_enc, batch_y_date_enc):
         batch_x = batch_x.to(self.device)
         batch_y = batch_y.to(self.device)
-        batch_x_date_enc = batch_x_date_enc.to(self.device)
-        batch_y_date_enc = batch_y_date_enc.to(self.device)
 
-        dec_inp_pred = torch.zeros(
-            [batch_x.size(0), self.pred_len, self.dataset.num_features]
-        ).to(self.device)
-        dec_inp_label = batch_x[:, -self.label_len :, :].to(self.device)
-
-        dec_inp = torch.cat([dec_inp_label, dec_inp_pred], dim=1)
-        dec_inp_date_enc = torch.cat(
-            [batch_x_date_enc[:, -self.label_len :, :], batch_y_date_enc], dim=1
-        )
-        outputs = self.model(batch_x, batch_x_date_enc, dec_inp, dec_inp_date_enc)
-        pred = self.dataset.inverse_transform(outputs)
+        outputs  = self.model(batch_x)  # (B, N) or (B, out_len, N)
+        preds = self.dataset.inverse_transform(outputs)
         batch_y = self.dataset.inverse_transform(batch_y)
 
-        return pred.squeeze(), batch_y.squeeze()
+        return preds.squeeze(), batch_y.squeeze()
 
     def test():
         pass
@@ -192,16 +172,8 @@ class InformerExperiment(Experiment):
                     loss.backward()
                     self.model_optim.step()
                     
-                    
                     train_loss.append(loss.item())
 
-                    if (i + 1) % 10 == 0:
-                        print(
-                            "\titers: {0}, epoch: {1} | loss: {2:.7f}".format(
-                                i + 1, epoch + 1, loss.item()
-                            )
-                        )
-                    # Log info
                     progress_bar.update(self.batch_size)
                     progress_bar.set_postfix(
                         epoch=epoch,
@@ -213,15 +185,9 @@ class InformerExperiment(Experiment):
                     if self.wandb:
                         wandb.log({"loss": loss.item()}, step=i)
 
-                    
 
             print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
             train_loss = np.average(train_loss)
-            # vali_loss = self.vali(self.val_loader, criterion)
-            # test_loss = self.vali(self.test_loader, criterion)
-
-            # val_res_str = self.evaluate(self.val_loader)
-            # print(val_res_str)
             
             
             val_res_str = self.evaluate(self.train_loader)
@@ -241,20 +207,18 @@ class InformerExperiment(Experiment):
 
 
 def main():
-    exp = InformerExperiment(
+    exp = GRUExperiment(
         dataset_type="ETTh1",
         data_path="./data",
         optm_type="Adam",
         batch_size=64,
         device="cuda:1",
         windows=96,
-        label_len=48,
+        hidden_size=64,
         horizon=3,
         epochs=100,
         lr=0.001,
-        dropout=0.05,
-        d_ff=2048,
-        pred_len=24,
+        pred_len=1,
         seed=1,
         scaler_type="MaxAbsScaler",
         wandb=False,

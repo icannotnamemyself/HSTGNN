@@ -13,7 +13,15 @@ def test_corr():
         corr.update(pred, true)
 
     result = corr.compute()
+    assert round(result) == 1
 
+    corr = Corr()
+    for i in range(3):
+        pred = torch.randn(64, 3)
+        true = pred
+        corr.update(pred, true)
+
+    result = corr.compute()
     assert round(result) == 1
 
 

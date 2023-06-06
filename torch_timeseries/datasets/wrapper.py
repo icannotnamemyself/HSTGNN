@@ -11,7 +11,7 @@ import torch
 
 
 class MultiStepTimeFeatureSet(Dataset):
-    def __init__(self, dataset: TimeSeriesDataset, scaler: Scaler, time_enc=0, window: int = 168, horizon: int = 3, steps: int = 2):
+    def __init__(self, dataset: TimeSeriesDataset, scaler: Scaler, time_enc=0, window: int = 168, horizon: int = 3, steps: int = 2, freq=None):
         self.dataset = dataset
         self.window = window
         self.horizon = horizon
@@ -22,7 +22,10 @@ class MultiStepTimeFeatureSet(Dataset):
         self.scaled_data = self.scaler.transform(self.dataset.data)
 
         self.num_features = self.dataset.num_features
-        self.freq = self.dataset.freq
+        if freq is None:
+            self.freq = self.dataset.freq
+        else:
+            self.freq = freq
         self.length = self.dataset.length
 
     def transform(self, values):
@@ -37,12 +40,12 @@ class MultiStepTimeFeatureSet(Dataset):
             x = self.scaled_data[index:index+self.window]
             x_date_enc = time_features(
                 self.dataset.df.iloc[index:index+self.window],
-                self.time_enc, self.dataset.freq)
+                self.time_enc, self.freq)
             y = self.scaled_data[self.window + self.horizon - 1 +
                                  index:self.window + self.horizon - 1 + index+self.steps]
             y_date_enc = time_features(
                 self.dataset.df.iloc[self.window + self.horizon -
-                                     1 + index:self.window + self.horizon - 1 + index+self.steps], self.time_enc, self.dataset.freq)
+                                     1 + index:self.window + self.horizon - 1 + index+self.steps], self.time_enc, self.freq)
             return x, y, x_date_enc, y_date_enc
         else:
             raise TypeError('Not surpported index type!!!')

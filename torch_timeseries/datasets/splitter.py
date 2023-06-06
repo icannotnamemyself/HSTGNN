@@ -3,7 +3,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader, RandomSampler, Subset
 
 
-class Splitter():
+class Splitter:
     pass
 
 
@@ -14,6 +14,7 @@ class SequenceSplitter:
         train_ratio: float = 0.6,
         test_ratio: float = 0.2,
         val_ratio: float = 0.2,
+        num_worker: int = 3,
     ) -> None:
         """
 
@@ -31,6 +32,7 @@ class SequenceSplitter:
         self.test_ratio = test_ratio
         self.val_ratio = val_ratio
         self.batch_size = batch_size
+        self.num_worker = num_worker
 
     def __getstate__(self) -> dict:
         # Only serialize the name and age members
@@ -54,18 +56,16 @@ class SequenceSplitter:
         """
 
         dataset_size = len(dataset)
-        train_size = int(0.6 * len(dataset))
-        test_size = int(0.2 * len(dataset))
+        train_size = int(self.train_ratio * len(dataset))
+        test_size = int(self.val_ratio * len(dataset))
         val_size = len(dataset) - test_size - train_size
 
         # fixed suquence dataset
         indices = range(0, len(dataset))
         train_dataset = Subset(dataset, indices[0:train_size])
-        val_dataset = Subset(
-            dataset, indices[train_size: (test_size + train_size)])
+        val_dataset = Subset(dataset, indices[train_size : (test_size + train_size)])
         test_dataset = Subset(dataset, indices[-val_size:])
-        assert len(train_dataset) + len(test_dataset) + \
-            len(val_dataset) == dataset_size
+        assert len(train_dataset) + len(test_dataset) + len(val_dataset) == dataset_size
 
         train_size = int(self.train_ratio * dataset_size)
         test_size = int(self.test_ratio * dataset_size)
@@ -78,20 +78,26 @@ class SequenceSplitter:
         train_loader = DataLoader(
             train_dataset,
             batch_size=self.batch_size,
-            shuffle=False
+            shuffle=False,
+            num_workers=self.num_worker,
         )
 
         val_loader = DataLoader(
             val_dataset,
             batch_size=self.batch_size,
             shuffle=False,
+            num_workers=self.num_worker,
         )
 
         test_loader = DataLoader(
             test_dataset,
             batch_size=self.batch_size,
             shuffle=False,
+            num_workers=self.num_worker,
         )
+        self.train_size = train_size
+        self.test_size = test_size
+        self.val_size = val_size
 
         return train_loader, test_loader, val_loader
 
@@ -107,6 +113,7 @@ class SequenceRandomSplitter:
         shuffle_train=True,
         shuffle_val=False,
         shuffle_test=False,
+        num_worker=20,
     ) -> None:
         """
 
@@ -128,6 +135,7 @@ class SequenceRandomSplitter:
         self.shuffle_test = shuffle_test
         self.shuffle_val = shuffle_val
         self.shuffle_train = shuffle_train
+        self.num_worker = num_worker
 
     def __getstate__(self) -> dict:
         # Only serialize the name and age members
@@ -155,18 +163,16 @@ class SequenceRandomSplitter:
         seed_generator.manual_seed(self.seed)
 
         dataset_size = len(dataset)
-        train_size = int(0.6 * len(dataset))
-        test_size = int(0.2 * len(dataset))
+        train_size = int(self.train_ratio * len(dataset))
+        test_size = int(self.test_ratio * len(dataset))
         val_size = len(dataset) - test_size - train_size
 
         # fixed suquence dataset
         indices = range(0, len(dataset))
         train_dataset = Subset(dataset, indices[0:train_size])
-        val_dataset = Subset(
-            dataset, indices[train_size: (test_size + train_size)])
+        val_dataset = Subset(dataset, indices[train_size : (test_size + train_size)])
         test_dataset = Subset(dataset, indices[-val_size:])
-        assert len(train_dataset) + len(test_dataset) + \
-            len(val_dataset) == dataset_size
+        assert len(train_dataset) + len(test_dataset) + len(val_dataset) == dataset_size
 
         train_size = int(self.train_ratio * dataset_size)
         test_size = int(self.test_ratio * dataset_size)
@@ -181,13 +187,12 @@ class SequenceRandomSplitter:
                 batch_size=self.batch_size,
                 sampler=RandomSampler(train_dataset, generator=seed_generator),
                 generator=seed_generator,
+                num_workers=self.num_worker,
             )
         else:
             # RandomSampler 与 Dataloader generator都需要设置，否则还是无法复现
             train_loader = DataLoader(
-                train_dataset,
-                batch_size=self.batch_size,
-                shuffle=False
+                train_dataset, batch_size=self.batch_size, shuffle=False
             )
 
         if self.shuffle_val:
@@ -196,12 +201,14 @@ class SequenceRandomSplitter:
                 batch_size=self.batch_size,
                 sampler=RandomSampler(val_dataset, generator=seed_generator),
                 generator=seed_generator,
+                num_workers=self.num_worker,
             )
         else:
             val_loader = DataLoader(
                 val_dataset,
                 batch_size=self.batch_size,
                 shuffle=False,
+                num_workers=self.num_worker,
             )
 
         if self.shuffle_test:
@@ -210,12 +217,17 @@ class SequenceRandomSplitter:
                 batch_size=self.batch_size,
                 sampler=RandomSampler(test_dataset, generator=seed_generator),
                 generator=seed_generator,
+                num_workers=self.num_worker,
             )
         else:
             test_loader = DataLoader(
                 test_dataset,
                 batch_size=self.batch_size,
                 shuffle=False,
+                num_workers=self.num_worker,
             )
+        self.train_size = train_size
+        self.test_size = test_size
+        self.val_size = val_size
 
         return train_loader, test_loader, val_loader
