@@ -11,14 +11,15 @@ import torch
 
 
 class MultiStepTimeFeatureSet(Dataset):
-    def __init__(self, dataset: TimeSeriesDataset, scaler: Scaler, time_enc=0, window: int = 168, horizon: int = 3, steps: int = 2, freq=None):
+    def __init__(self, dataset: TimeSeriesDataset, scaler: Scaler, time_enc=0, window: int = 168, horizon: int = 3, steps: int = 2, freq=None, scaler_fit=True):
         self.dataset = dataset
         self.window = window
         self.horizon = horizon
         self.steps = steps
         self.time_enc = time_enc
         self.scaler = scaler
-        self.scaler.fit(self.dataset.data)
+        if scaler_fit:
+            self.scaler.fit(self.dataset.data)
         self.scaled_data = self.scaler.transform(self.dataset.data)
 
         self.num_features = self.dataset.num_features

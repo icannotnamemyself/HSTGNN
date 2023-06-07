@@ -53,8 +53,8 @@ class Corr(Metric):
         self.add_state("y_true", default=torch.Tensor(), dist_reduce_fx="cat")
 
     def update(self, y_pred: torch.Tensor, y_true: torch.Tensor):
-        y_pred = y_pred.view(-1, y_pred.shape[-1])
-        y_true = y_true.view(-1, y_true.shape[-1])
+        y_pred = y_pred.reshape(-1, y_pred.shape[-1])
+        y_true = y_true.reshape(-1, y_true.shape[-1])
         self.y_pred = torch.cat([self.y_pred, y_pred], dim=0)
         self.y_true = torch.cat([self.y_true, y_true], dim=0)
 
@@ -62,11 +62,11 @@ class Corr(Metric):
         sigma_p = self.y_pred.std(0)  # (node_num)
         sigma_g = self.y_true.std(0)  # (node_num)
         mean_p = self.y_pred.mean(0)  # (node_num)
-        mean_g = self.y_true.mean(0)
+        mean_g = self.y_true.mean(0)  # (node_num)
         index = sigma_g != 0
         sigma_p += 1e-7
         sigma_g += 1e-7
-        correlation = ((self.y_pred - mean_p) * (self.y_true - mean_g)).mean(0) / (
+        (correlation) = ((self.y_pred - mean_p) * (self.y_true - mean_g)).mean(0) / (
             sigma_p * sigma_g
         )
         correlation = correlation[index].mean().item()

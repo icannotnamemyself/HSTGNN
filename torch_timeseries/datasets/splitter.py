@@ -2,6 +2,8 @@ from typing import Tuple
 import torch
 from torch.utils.data import Dataset, DataLoader, RandomSampler, Subset
 
+from torch_timeseries.datasets.wrapper import MultiStepTimeFeatureSet
+
 
 class Splitter:
     pass
@@ -102,6 +104,9 @@ class SequenceSplitter:
         return train_loader, test_loader, val_loader
 
 
+
+
+
 class SequenceRandomSplitter:
     def __init__(
         self,
@@ -113,7 +118,7 @@ class SequenceRandomSplitter:
         shuffle_train=True,
         shuffle_val=False,
         shuffle_test=False,
-        num_worker=20,
+        num_worker=4,
     ) -> None:
         """
 

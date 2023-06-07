@@ -30,3 +30,5 @@ class ETTh1(TimeSeriesDataset):
         self.data = self.df.iloc[:, 1:].to_numpy()
         return self.data
     
+    
+    

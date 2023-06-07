@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import numpy as np
 import pandas as pd
-from typing import Any, Callable, Generic, NewType, Optional, TypeVar, Union
+from typing import Any, Callable, Generic, NewType, Optional, Sequence, TypeVar, Union
 from torch import Tensor
 import torch.utils.data
 import os
@@ -13,22 +13,22 @@ from torch_timeseries.data.scaler import MaxAbsScaler, Scaler, StoreType
 
 from enum import Enum, unique
 
+
 @unique
 class Freq(str, Enum):
-   seconds = 's'
-   minutes = 't'
-   hours = 'h'
-   days = 'd'
-   months = 'm'
-   years = 'y'
-
+    seconds = "s"
+    minutes = "t"
+    hours = "h"
+    days = "d"
+    months = "m"
+    years = "y"
 
 
 class Dataset(torch.utils.data.Dataset):
-    name:str 
+    name: str
     num_features: int
-    length :int 
-    freq : Freq 
+    length: int
+    freq: Freq
 
     def __init__(self, root: str, scaler: Scaler = MaxAbsScaler()):
         """_summary_
@@ -40,9 +40,9 @@ class Dataset(torch.utils.data.Dataset):
             single_step (bool, optional): True for single_step data, False for multi_steps data. Defaults to True.
         """
         super().__init__()
-        
-        self.data : np.ndarray
-        self.df : pd.DataFrame
+
+        self.data: np.ndarray
+        self.df: pd.DataFrame
 
     def download(self):
         r"""Downloads the dataset to the :obj:`self.dir` folder."""
@@ -56,7 +56,7 @@ class Dataset(torch.utils.data.Dataset):
 StoreTypes = np.ndarray
 
 
-class TimeSeriesDataset(Dataset): 
+class TimeSeriesDataset(Dataset):
     def __init__(self, root: str):
         """_summary_
 
@@ -71,7 +71,7 @@ class TimeSeriesDataset(Dataset):
 
         self.download()
         self._load()
-        
+
     @abstractmethod
     def download(self):
         r"""Downloads the dataset to the :obj:`self.dir` folder."""
@@ -89,3 +89,16 @@ class TimeSeriesDataset(Dataset):
         """
 
         raise NotImplementedError
+
+
+class TimeseriesSubset(torch.utils.data.Subset):
+    def __init__(self, dataset: TimeSeriesDataset, indices: Sequence[int]) -> None:
+        self.dataset = dataset
+        self.indices = indices
+        self.data = self.dataset.data[indices]
+        self.df = self.dataset.df.iloc[indices]
+
+        self.num_features = dataset.num_features
+        self.name = dataset.name
+        self.length = len(self.indices)
+        self.freq = dataset.freq

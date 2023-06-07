@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from pandas.tseries import offsets
 from pandas.tseries.frequencies import to_offset
-
+pd.options.mode.chained_assignment = None
 class TimeFeature:
     def __init__(self):
         pass
