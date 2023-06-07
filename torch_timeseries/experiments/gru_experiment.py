@@ -78,8 +78,6 @@ class GRUExperiment(Experiment):
         batch_y = batch_y.to(self.device)
 
         outputs = self.model(batch_x)  # (B, N) or (B, out_len, N)
-        preds = self.scaler.inverse_transform(outputs)
-        batch_y = self.scaler.inverse_transform(batch_y)
         if self.invtrans_loss:
             preds = self.scaler.inverse_transform(outputs)
             batch_y = self.scaler.inverse_transform(batch_y)
