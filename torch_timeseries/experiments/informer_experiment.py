@@ -27,7 +27,7 @@ from torch_timeseries.nn.metric import R2, Corr
 @dataclass
 class InformerExperiment(Experiment):
     model_type: str = "Informer"
-    label_len: int = 2
+    label_len: int = 48
 
     factor: int = 5
     d_model: int = 512
@@ -42,7 +42,7 @@ class InformerExperiment(Experiment):
     distil: bool = True
     mix: bool = True
 
-    def _init_model_optm_loss(self):
+    def _init_model_optm(self):
         self.model = Informer(
             self.dataset.num_features,
             self.dataset.num_features,
@@ -64,7 +64,6 @@ class InformerExperiment(Experiment):
         self.model_optim = self._parse_type(self.optm_type)(
             self.model.parameters(), lr=self.lr, weight_decay=self.l2_weight_decay
         )
-        self.loss_func = MSELoss()
 
     def _process_one_batch(self, batch_x, batch_y, batch_x_date_enc, batch_y_date_enc):
         batch_x = batch_x.to(self.device)
@@ -82,8 +81,8 @@ class InformerExperiment(Experiment):
             [batch_x_date_enc[:, -self.label_len :, :], batch_y_date_enc], dim=1
         )
         outputs = self.model(batch_x, batch_x_date_enc, dec_inp, dec_inp_date_enc)
-        pred = self.dataset.inverse_transform(outputs)
-        batch_y = self.dataset.inverse_transform(batch_y)
+        pred = self.scaler.inverse_transform(outputs)
+        batch_y = self.scaler.inverse_transform(batch_y)
 
         return pred.squeeze(), batch_y.squeeze()
 

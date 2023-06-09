@@ -63,7 +63,11 @@ class ChunkSequenceTimefeatureDataLoader:
 
         self._load()
 
-    def _load(self) -> Tuple[DataLoader, DataLoader, DataLoader]:
+    def _load(self):
+        self._load_dataset()
+        self._load_dataloader()
+
+    def _load_dataset(self):
         """
         Return the splitted training, testing and validation dataloders
 
@@ -86,7 +90,7 @@ class ChunkSequenceTimefeatureDataLoader:
         else:
             self.scaler.fit(self.dataset.data)
 
-        train_dataset = MultiStepTimeFeatureSet(
+        self.train_dataset = MultiStepTimeFeatureSet(
             train_subset,
             scaler=self.scaler,
             time_enc=self.time_enc,
@@ -96,7 +100,7 @@ class ChunkSequenceTimefeatureDataLoader:
             freq=self.freq,
             scaler_fit=False,
         )
-        val_dataset = MultiStepTimeFeatureSet(
+        self.val_dataset = MultiStepTimeFeatureSet(
             val_subset,
             scaler=self.scaler,
             time_enc=self.time_enc,
@@ -106,7 +110,7 @@ class ChunkSequenceTimefeatureDataLoader:
             freq=self.freq,
             scaler_fit=False,
         )
-        test_dataset = MultiStepTimeFeatureSet(
+        self.test_dataset = MultiStepTimeFeatureSet(
             test_subset,
             scaler=self.scaler,
             time_enc=self.time_enc,
@@ -117,37 +121,59 @@ class ChunkSequenceTimefeatureDataLoader:
             scaler_fit=False,
         )
 
-        train_size = len(train_dataset)
-        val_size = len(val_dataset)
-        test_size = len(test_dataset)
+    def _load_dataloader(self):
+        self.train_size = len(self.train_dataset)
+        self.val_size = len(self.val_dataset)
+        self.test_size = len(self.test_dataset)
         # RandomSampler 与 Dataloader generator都需要设置，否则还是无法复现
-        train_loader = DataLoader(
-            train_dataset,
+        self.train_loader = DataLoader(
+            self.train_dataset,
             batch_size=self.batch_size,
             shuffle=self.shuffle_train,
             num_workers=self.num_worker,
-            
         )
 
-        val_loader = DataLoader(
-            val_dataset,
+        self.val_loader = DataLoader(
+            self.val_dataset,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_worker,
         )
 
-        test_loader = DataLoader(
-            test_dataset,
+        self.test_loader = DataLoader(
+            self.test_dataset,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_worker,
         )
-        self.train_size = train_size
-        self.test_size = test_size
-        self.val_size = val_size
 
-        self.train_loader = train_loader
-        self.test_loader = test_loader
-        self.val_loader = val_loader
 
-        return train_loader, test_loader, val_loader
+class DDPChunkSequenceTimefeatureDataLoader(ChunkSequenceTimefeatureDataLoader):
+    def _load_dataloader(self):
+        self.train_sampler = torch.utils.data.distributed.DistributedSampler(self.train_dataset)
+        self.val_sampler = torch.utils.data.distributed.DistributedSampler(self.val_dataset)
+        self.test_sampler = torch.utils.data.distributed.DistributedSampler(self.test_dataset)
+        
+        self.train_loader = DataLoader(
+            self.train_dataset,
+            sampler=self.train_sampler,
+            batch_size=self.batch_size,
+            shuffle=self.shuffle_train,
+            num_workers=self.num_worker,
+        )
+        
+        self.val_loader = DataLoader(
+            self.val_dataset,
+            sampler=self.val_sampler,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_worker,
+        )
+
+        self.test_loader = DataLoader(
+            self.test_dataset,
+            sampler=self.test_sampler,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_worker,
+        )

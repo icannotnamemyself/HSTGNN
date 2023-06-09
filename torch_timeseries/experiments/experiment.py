@@ -11,7 +11,10 @@ from torch_timeseries.data.scaler import *
 from torch_timeseries.datasets import *
 from torch_timeseries.datasets.dataset import TimeSeriesDataset
 from torch_timeseries.datasets.splitter import SequenceRandomSplitter, SequenceSplitter
-from torch_timeseries.datasets.dataloader import ChunkSequenceTimefeatureDataLoader
+from torch_timeseries.datasets.dataloader import (
+    ChunkSequenceTimefeatureDataLoader,
+    DDPChunkSequenceTimefeatureDataLoader,
+)
 from torch_timeseries.datasets.wrapper import MultiStepTimeFeatureSet
 from torch_timeseries.nn.Informer import Informer
 from torch.nn import MSELoss, L1Loss
@@ -20,10 +23,10 @@ from omegaconf import OmegaConf
 from torch.optim import Optimizer, Adam
 from torch.utils.data import Dataset, DataLoader, RandomSampler, Subset
 
-
+from torch.nn import DataParallel
 from dataclasses import asdict, dataclass
 
-from torch_timeseries.nn.metric import R2, Corr
+from torch_timeseries.nn.metric import R2, Corr, compute_corr, compute_r2
 
 
 @dataclass
@@ -32,7 +35,7 @@ class Settings:
     optm_type: str = "Adam"
     scaler_type: str = "StandarScaler"
     horizon: int = 3
-    batch_size: int = 64
+    batch_size: int = 128
     pred_len: int = 1
     data_path: str = "./data"
     device: str = "cuda:0"
@@ -40,7 +43,7 @@ class Settings:
     lr: float = 0.0003
     # seed for experiment level randomness such as dataloader randomness
     seed: int = 42
-    num_worker: int = 2
+    num_worker: int = 20
     epochs: int = 1
     wandb: bool = True
     loss_func_type: str = "mse"
@@ -62,6 +65,7 @@ class Experiment(Settings):
             run = wandb.init(
                 project=project,
                 name=name,
+                tags=[self.model_type, self.dataset_type, f"horizon-{self.horizon}"],
             )
             wandb.config.update(asdict(self))
             print(f"running in config: {asdict(self)}")
@@ -102,24 +106,37 @@ class Experiment(Settings):
             }
         ).to(self.device)
 
+    def _init_ddp_data_loader(self):
+        self.dataset = self._parse_type(self.dataset_type)(root=self.data_path)
+        self.scaler = self._parse_type(self.scaler_type)()
+        self.dataloader = DDPChunkSequenceTimefeatureDataLoader(
+            self.dataset,
+            self.scaler,
+            window=self.windows,
+            horizon=self.horizon,
+            steps=self.pred_len,
+            scale_in_train=False,
+            shuffle_train=True,
+            freq="h",
+            batch_size=self.batch_size,
+            train_ratio=0.7,
+            val_ratio=0.2,
+            num_worker=self.num_worker,
+        )
+        self.train_loader, self.val_loader, self.test_loader = (
+            self.dataloader.train_loader,
+            self.dataloader.val_loader,
+            self.dataloader.test_loader,
+        )
+        self.train_steps = self.dataloader.train_size
+        self.val_steps = self.dataloader.val_size
+        self.test_steps = self.dataloader.test_size
+
+        print(f"train steps: {self.train_steps}")
+        print(f"val steps: {self.val_steps}")
+        print(f"test steps: {self.test_steps}")
+
     def _init_data_loader(self):
-        # self.dataset = MultiStepTimeFeatureSet(
-        #     self._parse_type(self.dataset_type)(root=self.data_path),
-        #     self._parse_type(self.scaler_type)(),
-        #     horizon=self.horizon,
-        #     window=self.windows,
-        #     steps=self.pred_len,
-        #     freq="h",
-        # )
-        # self.srs = SequenceRandomSplitter(
-        #     train_ratio=0.7,
-        #     val_ratio=0.2,
-        #     test_ratio=0.1,
-        #     batch_size=self.batch_size,
-        #     shuffle_train=True,
-        #     seed=self.seed,
-        #     num_worker=self.num_worker
-        # )
         self.dataset = self._parse_type(self.dataset_type)(root=self.data_path)
         self.scaler = self._parse_type(self.scaler_type)()
         self.dataloader = ChunkSequenceTimefeatureDataLoader(
@@ -178,6 +195,12 @@ class Experiment(Settings):
         # init loss function based on given loss func type
         self._init_loss_func()
 
+    def _setup_dp_run(self, seed, device_ids, output_device):
+        self._setup_run(seed)
+        self.model = DataParallel(
+            self.model, device_ids=device_ids, output_device=output_device
+        ).to(self.device)
+
     def _parse_type(self, str_or_type: Union[Type, str]) -> Type:
         if isinstance(str_or_type, str):
             return eval(str_or_type)
@@ -186,7 +209,20 @@ class Experiment(Settings):
         else:
             raise RuntimeError(f"{str_or_type} should be string or type")
 
-    def _save(self, seed):
+    def _setup_ddp_run(self, world_size=1):
+        torch.distributed.init_process_group(backend="nccl", world_size=world_size)
+        self.model = torch.nn.parallel.DistributedDataParallel(
+            self.model, find_unused_parameters=True
+        )
+        self._init_ddp_data_loader()
+        self._init_metrics()
+
+        self.current_epochs = 0
+        self.current_run = 0
+
+        self.setuped = True
+
+    def _save(self, seed=0):
         self.checkpoint_path = os.path.join(
             self.save_dir, f"{self.model_type}/{self.dataset_type}"
         )
@@ -205,9 +241,9 @@ class Experiment(Settings):
         }
 
         self.app_state.update(asdict(self))
-        torch.save(
-            self.app_state, f"{self.checkpoint_filepath}-{seed}-{self.current_epoch}"
-        )
+
+        # now only save the newest state
+        torch.save(self.app_state, f"{self.checkpoint_filepath}")
 
     def _load_from_checkpoint(self, model_path):
         checkpoint = torch.load(model_path, map_location=self.device)
@@ -277,6 +313,10 @@ class Experiment(Settings):
     def _evaluate(self):
         self.model.eval()
         self.metrics.reset()
+
+        y_truths = []
+        y_preds = []
+
         print("Evaluating .... ")
         with tqdm(total=self.val_steps) as progress_bar:
             for batch_x, batch_y, batch_x_date_enc, batch_y_date_enc in self.val_loader:
@@ -285,12 +325,21 @@ class Experiment(Settings):
                 )
                 self.metrics.update(preds, truths)
 
+                y_truths.append(truths.detach().cpu().numpy())
+                y_preds.append(preds.detach().cpu().numpy())
+
                 progress_bar.update(batch_x.shape[0])
+
+        y_truths = np.concatenate(y_truths, axis=0)
+        y_preds = np.concatenate(y_preds, axis=0)
 
         val_result = {
             name: float(metric.compute()) for name, metric in self.metrics.items()
         }
-
+        print(f"wjn corr: {compute_corr(y_truths, y_preds)}")
+        print(f"wjn r2: {compute_r2(y_truths, y_preds, aggr_mode='uniform_average')}")
+        print(f"wjn r2 weighted: {compute_r2(y_truths, y_preds, aggr_mode='variance_weighted')}")
+        # compute_r2
         if self.wandb is True:
             for name, metric_value in val_result.items():
                 wandb.run.summary["val_" + name] = metric_value
@@ -312,6 +361,7 @@ class Experiment(Settings):
                 pred, true = self._process_one_batch(
                     batch_x, batch_y, batch_x_date_enc, batch_y_date_enc
                 )
+
                 loss = self.loss_func(pred, true)
                 loss.backward()
 
@@ -340,6 +390,29 @@ class Experiment(Settings):
         epoch_time = time.time()
         for epoch in range(self.epochs):
             self.current_epoch = epoch
+            if self.wandb:
+                wandb.run.summary["at_epoch"] = epoch
+            self._train()
+            print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
+
+            # evaluate on vali set
+            self._evaluate()
+
+            self._save(seed=seed)
+
+        return self._test()
+
+    def dp_run(self, seed=42, device_ids: List[int] = [0, 2, 4, 6], output_device=0):
+        self._setup_dp_run(seed, device_ids, output_device)
+        print(f"run : {self.current_run} in seed: {seed}")
+        print(
+            f"model parameters: {sum([p.nelement() for p in self.model.parameters()])}"
+        )
+        epoch_time = time.time()
+        for epoch in range(self.epochs):
+            self.current_epoch = epoch
+            if self.wandb:
+                wandb.run.summary["at_epoch"] = epoch
             self._train()
             print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
 
@@ -354,11 +427,14 @@ class Experiment(Settings):
         results = []
         for i, seed in enumerate(seeds):
             self.current_run = i
+            if self.wandb:
+                wandb.run.summary["at_run"] = i
             result = self.run(seed=seed)
             results.append(result)
 
-            for name, metric_value in result.items():
-                wandb.run.summary["test_" + name] = metric_value
+            if self.wandb is True:
+                for name, metric_value in result.items():
+                    wandb.run.summary["test_" + name] = metric_value
 
         df = pd.DataFrame(results)
         self.metric_mean_std = df.agg(["mean", "std"]).T
@@ -367,6 +443,10 @@ class Experiment(Settings):
                 lambda x: f"{x['mean']:.4f} ± {x['std']:.4f}", axis=1
             )
         )
+        for index, row in self.metric_mean_std.iterrows():
+            wandb.run.summary[f"{index}_mean"] = row["mean"]
+            wandb.run.summary[f"{index}_std"] = row["std"]
+            wandb.run.summary[index] = f"{row['mean']:.4f}±{row['std']:.4f}"
 
 
 def main():

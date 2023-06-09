@@ -90,16 +90,16 @@ class GRUExperiment(Experiment):
 
 def main():
     exp = GRUExperiment(
-        dataset_type="ETTh1",
+        dataset_type="SolarEnergy",
         data_path="./data",
         optm_type="Adam",
-        batch_size=64,
+        batch_size=128,
         device="cuda:1",
         windows=96,
         hidden_size=64,
         horizon=3,
-        epochs=100,
-        lr=0.001,
+        epochs=1,
+        lr=0.0003,
         pred_len=1,
         seed=1,
         scaler_type="MaxAbsScaler",

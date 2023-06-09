@@ -18,16 +18,19 @@ class MultiStepTimeFeatureSet(Dataset):
         self.steps = steps
         self.time_enc = time_enc
         self.scaler = scaler
-        if scaler_fit:
-            self.scaler.fit(self.dataset.data)
-        self.scaled_data = self.scaler.transform(self.dataset.data)
-
+        
         self.num_features = self.dataset.num_features
+        self.length = self.dataset.length
         if freq is None:
             self.freq = self.dataset.freq
         else:
             self.freq = freq
-        self.length = self.dataset.length
+        if scaler_fit:
+            self.scaler.fit(self.dataset.data)
+        self.scaled_data = self.scaler.transform(self.dataset.data)
+        self.date_enc_data = time_features(
+            self.dataset.df, self.time_enc, self.freq)
+
 
     def transform(self, values):
         return self.scaler.transform(values)
@@ -39,14 +42,11 @@ class MultiStepTimeFeatureSet(Dataset):
         # 如果是数字索引，则返回单个数据项
         if isinstance(index, int):
             x = self.scaled_data[index:index+self.window]
-            x_date_enc = time_features(
-                self.dataset.df.iloc[index:index+self.window],
-                self.time_enc, self.freq)
+            x_date_enc = self.date_enc_data[index:index+self.window]
             y = self.scaled_data[self.window + self.horizon - 1 +
                                  index:self.window + self.horizon - 1 + index+self.steps]
-            y_date_enc = time_features(
-                self.dataset.df.iloc[self.window + self.horizon -
-                                     1 + index:self.window + self.horizon - 1 + index+self.steps], self.time_enc, self.freq)
+            y_date_enc = self.date_enc_data[self.window + self.horizon -
+                                            1 + index:self.window + self.horizon - 1 + index+self.steps]
             return x, y, x_date_enc, y_date_enc
         else:
             raise TypeError('Not surpported index type!!!')

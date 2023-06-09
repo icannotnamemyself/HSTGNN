@@ -68,8 +68,9 @@ class TimeSeriesDataset(Dataset):
         self.root = root
         self.dir = os.path.join(root, self.name)
         os.makedirs(self.dir, exist_ok=True)
-
+        
         self.download()
+        self._process()
         self._load()
 
     @abstractmethod
@@ -77,6 +78,10 @@ class TimeSeriesDataset(Dataset):
         r"""Downloads the dataset to the :obj:`self.dir` folder."""
         raise NotImplementedError
 
+    def _process(self) :
+        pass
+    
+    
     @abstractmethod
     def _load(self) -> StoreTypes:
         """Loads the dataset to the :attr:`self.data` .

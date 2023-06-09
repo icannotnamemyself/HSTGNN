@@ -25,18 +25,6 @@ import wandb
 from dataclasses import dataclass, asdict
 
 
-def run_once(func):
-    def wrapper(*args, **kwargs):
-        if not wrapper.has_run:
-            wrapper.has_run = True
-            return func(*args, **kwargs)
-        else:
-            return None
-
-    wrapper.has_run = False
-    return wrapper
-
-
 @dataclass
 class MTGNNExperiment(Experiment):
     model_type: str = "MTGNN"
@@ -118,36 +106,36 @@ class MTGNNExperiment(Experiment):
         return pred.squeeze(), batch_y.squeeze()
 
 
-def main():
-    exp = MTGNNExperiment(
-        dataset_type="ExchangeRate",
-        data_path="./data",
-        optm_type="Adam",
-        batch_size=64,
-        device="cuda:3",
-        windows=168,
-        epochs=1,
-        lr=0.0003,
-        horizon=3,
-        residual_channels=16,
-        gcn_true=False,
-        l2_weight_decay=0.0005,
-        skip_channels=16,
-        residual_layer=16,
-        layers=5,
-        pred_len=1,
-        subgraph_size=3,
-        end_channels=16,
-        seed=42,
-        scaler_type="StandarScaler",
-        wandb=False,
-    )
-    exp.config_wandb(
-        "project",
-        "name"
-    )
-    exp.runs()
+# def main():
+#     exp = MTGNNExperiment(
+#         dataset_type="ExchangeRate",
+#         data_path="./data",
+#         optm_type="Adam",
+#         batch_size=64,
+#         device="cuda:3",
+#         windows=168,
+#         epochs=1,
+#         lr=0.0003,
+#         horizon=3,
+#         residual_channels=16,
+#         gcn_true=False,
+#         l2_weight_decay=0.0005,
+#         skip_channels=16,
+#         residual_layer=16,
+#         layers=5,
+#         pred_len=1,
+#         subgraph_size=3,
+#         end_channels=16,
+#         seed=42,
+#         scaler_type="StandarScaler",
+#         wandb=False,
+#     )
+#     exp.config_wandb(
+#         "project",
+#         "name"
+#     )
+#     exp.runs()
 
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()
