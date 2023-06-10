@@ -49,8 +49,7 @@ class MTGNNExperiment(Experiment):
 
     invtrans_loss: bool = False
 
-
-    def _init_model_optm(self):
+    def _init_model(self):
         assert (
             self.subgraph_size <= self.dataset.num_features
         ), f"graph size {self.subgraph_size} have to be small than data columns :{self.dataset.num_features}"
@@ -81,10 +80,6 @@ class MTGNNExperiment(Experiment):
             residual_layer=self.residual_layer,
         )
         self.model = self.model.to(self.device)
-
-        self.model_optim = self._parse_type(self.optm_type)(
-            self.model.parameters(), lr=self.lr
-        )
 
     def _process_one_batch(self, batch_x, batch_y, batch_x_date_enc, batch_y_date_enc):
         batch_x = batch_x.to(self.device)

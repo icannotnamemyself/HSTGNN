@@ -7,7 +7,7 @@ import hashlib
 from typing import Dict, List, Type, Union
 import numpy as np
 import torch
-from torchmetrics import MeanSquaredError, MetricCollection
+from torchmetrics import MeanSquaredError, MetricCollection, MeanAbsoluteError
 from tqdm import tqdm
 import wandb
 from torch_timeseries.data.scaler import *
@@ -31,6 +31,9 @@ from dataclasses import asdict, dataclass
 
 from torch_timeseries.nn.metric import R2, Corr, compute_corr, compute_r2
 from torch_timeseries.utils.early_stopping import EarlyStopping
+import json
+import codecs
+
 
 
 @dataclass
@@ -48,6 +51,9 @@ class ResultRelatedSettings:
     horizon: int = 3
     windows: int = 384
     pred_len: int = 1
+
+    patience: int = 8
+    max_grad_norm: float = 5.0
 
 
 @dataclass
@@ -110,6 +116,7 @@ class Experiment(Settings):
                 ),
                 "mse": MeanSquaredError(),
                 "corr": Corr(),
+                "mae": MeanAbsoluteError(),
                 # "trend_acc" : TrendAcc()
             }
         ).to(self.device)
@@ -195,11 +202,16 @@ class Experiment(Settings):
         print(f"val steps: {self.val_steps}")
         print(f"test steps: {self.test_steps}")
 
-    def _init_model_optm(self):
-        self.model = self._parse_type(self.model_type)().to(self.device)
-        self.model_optim = self._parse_type(self.optm_type)(
-            self.model.parameters(), lr=self.lr
+    def _init_optimizer(self):
+        self.model_optim = Adam(
+            self.model.parameters(), lr=self.lr, weight_decay=self.l2_weight_decay
         )
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            self.model_optim, T_max=self.epochs
+        )
+
+    def _init_model(self):
+        self.model = self._parse_type(self.model_type)().to(self.device)
 
     def _setup(self):
         # init data loader
@@ -223,10 +235,32 @@ class Experiment(Settings):
         # setup torch and numpy random seed
         self.reproducible(seed)
         # init model, optimizer and loss function
-        self._init_model_optm()
-        self.current_epoch = 0
+        self._init_model()
 
-        # self.early_stopper = EarlyStopping(self.patience, verbose=True, self.checkpoint_filepath)
+        self._init_optimizer()
+        self.current_epoch = 0
+        self.run_save_dir = os.path.join(
+            self.save_dir,
+            "runs",
+            self.model_type,
+            self.dataset_type,
+            self._run_identifier(seed),
+        )
+
+        self.best_checkpoint_filepath = os.path.join(
+            self.run_save_dir, "best_model.pth"
+        )
+
+        self.run_checkpoint_filepath = os.path.join(
+            self.run_save_dir, "run_checkpoint.pth"
+        )
+
+        self.early_stopper = EarlyStopping(
+            self.patience, verbose=True, path=self.best_checkpoint_filepath
+        )
+        
+        
+        
 
     def _setup_dp_run(self, seed, device_ids, output_device):
         self._setup_run(seed)
@@ -279,39 +313,22 @@ class Experiment(Settings):
         torch.save(self.app_state, f"{self.checkpoint_filepath}")
 
     def _save_run_check_point(self, seed):
-        self.run_save_dir = os.path.join(
-            self.save_dir,
-            "runs",
-            self.model_type,
-            self.dataset_type,
-            self._run_identifier(seed),
-        )
-
-        self.run_checkpoint_filepath = os.path.join(
-            self.run_save_dir, f"run_checkpoint.pth"
-        )
-
         # 检查目录是否存在
         if not os.path.exists(self.run_save_dir):
             # 如果目录不存在，则创建新目录
             os.makedirs(self.run_save_dir)
-        print(f"Saving run check point to '{self.run_save_dir}'.")
+        print(f"Saving run checkpoint to '{self.run_save_dir}'.")
 
         self.run_state = {
             "model": self.model.state_dict(),
             "current_epoch": self.current_epoch,
             "optimizer": self.model_optim.state_dict(),
             "rng_state": torch.get_rng_state(),
-            "early_stopping": None,  # TODO: save early stopping best state
+            "early_stopping": self.early_stopper.get_state(),
         }
 
         torch.save(self.run_state, f"{self.run_checkpoint_filepath}")
         print("Run state saved ... ")
-
-    def _load_from_checkpoint(self, model_path):
-        checkpoint = torch.load(model_path, map_location=self.device)
-        self.model = checkpoint["model"]
-        self.model_optim = checkpoint["optimizer"]
 
     def reproducible(self, seed):
         # for reproducibility
@@ -377,8 +394,8 @@ class Experiment(Settings):
         self.model.eval()
         self.metrics.reset()
 
-        y_truths = []
-        y_preds = []
+        # y_truths = []
+        # y_preds = []
 
         print("Evaluating .... ")
         with tqdm(total=self.val_steps) as progress_bar:
@@ -388,22 +405,22 @@ class Experiment(Settings):
                 )
                 self.metrics.update(preds, truths)
 
-                y_truths.append(truths.detach().cpu().numpy())
-                y_preds.append(preds.detach().cpu().numpy())
+                # y_truths.append(truths.detach().cpu().numpy())
+                # y_preds.append(preds.detach().cpu().numpy())
 
                 progress_bar.update(batch_x.shape[0])
 
-        y_truths = np.concatenate(y_truths, axis=0)
-        y_preds = np.concatenate(y_preds, axis=0)
+        # y_truths = np.concatenate(y_truths, axis=0)
+        # y_preds = np.concatenate(y_preds, axis=0)
 
         val_result = {
             name: float(metric.compute()) for name, metric in self.metrics.items()
         }
-        print(f"wjn corr: {compute_corr(y_truths, y_preds)}")
-        print(f"wjn r2: {compute_r2(y_truths, y_preds, aggr_mode='uniform_average')}")
-        print(
-            f"wjn r2 weighted: {compute_r2(y_truths, y_preds, aggr_mode='variance_weighted')}"
-        )
+        # print(f"wjn corr: {compute_corr(y_truths, y_preds)}")
+        # print(f"wjn r2: {compute_r2(y_truths, y_preds, aggr_mode='uniform_average')}")
+        # print(
+        #     f"wjn r2 weighted: {compute_r2(y_truths, y_preds, aggr_mode='variance_weighted')}"
+        # )
         # compute_r2
         if self._use_wandb():
             for name, metric_value in val_result.items():
@@ -421,6 +438,7 @@ class Experiment(Settings):
                 batch_x_date_enc,
                 batch_y_date_enc,
             ) in enumerate(self.train_loader):
+                
                 self.model_optim.zero_grad()
 
                 pred, true = self._process_one_batch(
@@ -430,7 +448,9 @@ class Experiment(Settings):
                 loss = self.loss_func(pred, true)
                 loss.backward()
 
-                # Log info
+                torch.nn.utils.clip_grad_norm_(
+                    self.model.parameters(), self.max_grad_norm
+                )
                 progress_bar.update(self.batch_size)
                 progress_bar.set_postfix(
                     loss=loss.item(),
@@ -442,22 +462,18 @@ class Experiment(Settings):
                 if self._use_wandb():
                     wandb.log({"loss": loss.item()}, step=i)
 
-                self.model_optim.step()
-
-    def resume(self, expeiment_checkpoint_path) -> Dict[str, float]:
-        pass
-
+                # self.model_optim.step()
+                
     def _check_run_exist(self, seed: str):
-        run_save_dir = os.path.join(
-            self.save_dir,
-            "runs",
-            self.model_type,
-            self.dataset_type,
-            self._run_identifier(seed),
-        )
+        if not os.path.exists(self.run_save_dir):
+            # 如果目录不存在，则创建新目录
+            os.makedirs(self.run_save_dir)
+        print(f"Creating running results saving dir: '{self.run_save_dir}'.")
+        with codecs.open(os.path.join(self.run_save_dir, "args.json"), "w", encoding="utf-8") as f:
+            json.dump(asdict(self), f, ensure_ascii=False, indent=4)
 
-        run_checkpoint_filepath = os.path.join(run_save_dir, f"run_checkpoint.pth")
-        return os.path.exists(run_checkpoint_filepath)
+        exists = os.path.exists(self.run_checkpoint_filepath)
+        return exists
 
     def _resume_run(self, seed):
         # only train loader rshould be checkedpoint to keep the validation and test consistency
@@ -478,6 +494,10 @@ class Experiment(Settings):
         self.model_optim.load_state_dict(check_point["optimizer"])
         self.current_epoch = check_point["current_epoch"]
 
+        self.early_stopper.set_state(check_point["early_stopping"])
+       
+    def _load_best_model(self):
+        self.model.load_state_dict(torch.load(self.best_checkpoint_filepath))
 
     def run(self, seed=42) -> Dict[str, float]:
         self._setup_run(seed)
@@ -490,12 +510,18 @@ class Experiment(Settings):
         )
         epoch_time = time.time()
         while self.current_epoch < self.epochs:
+            if self.early_stopper.early_stop is True:
+                print(
+                    f"loss no decreased for {self.patience} epochs,  early stopping ...."
+                )
+                break
+
             if self._use_wandb():
                 wandb.run.summary["at_epoch"] = self.current_epoch
             # for resumable reproducibility
             self.reproducible(seed + self.current_epoch)
             self._train()
-            
+
             print(
                 "Epoch: {} cost time: {}".format(
                     self.current_epoch + 1, time.time() - epoch_time
@@ -503,12 +529,19 @@ class Experiment(Settings):
             )
 
             # evaluate on vali set
-            self._evaluate()
+            result = self._evaluate()
 
             self.current_epoch = self.current_epoch + 1
+            self.early_stopper(result[self.loss_func_type], model=self.model)
+            
             self._save_run_check_point(seed)
 
-        return self._test()
+            self.scheduler.step()
+
+        self._load_best_model()
+        best_test_result = self._test()
+
+        return best_test_result
 
     def dp_run(self, seed=42, device_ids: List[int] = [0, 2, 4, 6], output_device=0):
         self._setup_dp_run(seed, device_ids, output_device)
