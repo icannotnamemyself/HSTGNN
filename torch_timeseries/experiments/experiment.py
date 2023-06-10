@@ -61,7 +61,6 @@ class Settings(ResultRelatedSettings):
     data_path: str = "./data"
     device: str = "cuda:0"
     num_worker: int = 20
-    load_model_path: str = "./results"
     save_dir: str = "./results"
     experiment_label: str = str(int(time.time()))
 
@@ -128,7 +127,6 @@ class Experiment(Settings):
             "data_path",
             "device",
             "num_worker",
-            "load_model_path",
             "save_dir",
             "experiment_label",
         ]
@@ -462,7 +460,7 @@ class Experiment(Settings):
                 if self._use_wandb():
                     wandb.log({"loss": loss.item()}, step=i)
 
-                # self.model_optim.step()
+                self.model_optim.step()
                 
     def _check_run_exist(self, seed: str):
         if not os.path.exists(self.run_save_dir):
