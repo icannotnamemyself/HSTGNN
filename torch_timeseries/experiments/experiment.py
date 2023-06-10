@@ -1,6 +1,9 @@
+import json
 import os
 import random
 import time
+import hashlib
+
 from typing import Dict, List, Type, Union
 import numpy as np
 import torch
@@ -27,31 +30,33 @@ from torch.nn import DataParallel
 from dataclasses import asdict, dataclass
 
 from torch_timeseries.nn.metric import R2, Corr, compute_corr, compute_r2
+from torch_timeseries.utils.early_stopping import EarlyStopping
 
 
 @dataclass
-class Settings:
+class ResultRelatedSettings:
     dataset_type: str
     optm_type: str = "Adam"
+    model_type: str = ""
     scaler_type: str = "StandarScaler"
-    horizon: int = 3
+    loss_func_type: str = "mse"
     batch_size: int = 128
+    lr: float = 0.0003
+    l2_weight_decay: float = 0.0005
+    epochs: int = 1
+
+    horizon: int = 3
+    windows: int = 384
     pred_len: int = 1
+
+
+@dataclass
+class Settings(ResultRelatedSettings):
     data_path: str = "./data"
     device: str = "cuda:0"
-    windows: int = 384
-    lr: float = 0.0003
-    # seed for experiment level randomness such as dataloader randomness
-    seed: int = 42
     num_worker: int = 20
-    epochs: int = 1
-    wandb: bool = True
-    loss_func_type: str = "mse"
-
-    model_type: str = "Informer"
     load_model_path: str = "./results"
     save_dir: str = "./results"
-    l2_weight_decay: float = 0.0005
     experiment_label: str = str(int(time.time()))
 
 
@@ -61,15 +66,18 @@ class Experiment(Settings):
         project: str,
         name: str,
     ):
-        if self.wandb is True:
-            run = wandb.init(
-                project=project,
-                name=name,
-                tags=[self.model_type, self.dataset_type, f"horizon-{self.horizon}"],
-            )
-            wandb.config.update(asdict(self))
-            print(f"running in config: {asdict(self)}")
+        run = wandb.init(
+            project=project,
+            name=name,
+            tags=[self.model_type, self.dataset_type, f"horizon-{self.horizon}"],
+        )
+        wandb.config.update(asdict(self))
+        self.wandb = True
+        print(f"using wandb , running in config: {asdict(self)}")
         return self
+
+    def _use_wandb(self):
+        return hasattr(self, "wandb")
 
     def config_wandb_verbose(
         self,
@@ -78,15 +86,15 @@ class Experiment(Settings):
         tags: List[str],
         notes: str,
     ):
-        if self.wandb is True:
-            run = wandb.init(
-                project=project,
-                name=name,
-                notes=notes,
-                tags=tags,
-            )
-            wandb.config.update(asdict(self))
-            print(f"running in config: {asdict(self)}")
+        run = wandb.init(
+            project=project,
+            name=name,
+            notes=notes,
+            tags=tags,
+        )
+        wandb.config.update(asdict(self))
+        print(f"using wandb , running in config: {asdict(self)}")
+        self.wandb = True
         return self
 
     def _init_loss_func(self):
@@ -105,6 +113,27 @@ class Experiment(Settings):
                 # "trend_acc" : TrendAcc()
             }
         ).to(self.device)
+
+    def _run_identifier(self, seed) -> str:
+        ident = asdict(self)
+
+        keys_to_remove = [
+            "data_path",
+            "device",
+            "num_worker",
+            "load_model_path",
+            "save_dir",
+            "experiment_label",
+        ]
+        for key in keys_to_remove:
+            if key in ident:
+                del ident[key]
+        ident["seed"] = seed
+        ident_md5 = hashlib.md5(
+            json.dumps(ident, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+
+        return str(ident_md5)
 
     def _init_ddp_data_loader(self):
         self.dataset = self._parse_type(self.dataset_type)(root=self.data_path)
@@ -179,6 +208,9 @@ class Experiment(Settings):
         # init metrics
         self._init_metrics()
 
+        # init loss function based on given loss func type
+        self._init_loss_func()
+
         self.current_epochs = 0
         self.current_run = 0
 
@@ -192,8 +224,9 @@ class Experiment(Settings):
         self.reproducible(seed)
         # init model, optimizer and loss function
         self._init_model_optm()
-        # init loss function based on given loss func type
-        self._init_loss_func()
+        self.current_epoch = 0
+
+        # self.early_stopper = EarlyStopping(self.patience, verbose=True, self.checkpoint_filepath)
 
     def _setup_dp_run(self, seed, device_ids, output_device):
         self._setup_run(seed)
@@ -244,6 +277,36 @@ class Experiment(Settings):
 
         # now only save the newest state
         torch.save(self.app_state, f"{self.checkpoint_filepath}")
+
+    def _save_run_check_point(self, seed):
+        self.run_save_dir = os.path.join(
+            self.save_dir,
+            "runs",
+            self.model_type,
+            self.dataset_type,
+            self._run_identifier(seed),
+        )
+
+        self.run_checkpoint_filepath = os.path.join(
+            self.run_save_dir, f"run_checkpoint.pth"
+        )
+
+        # 检查目录是否存在
+        if not os.path.exists(self.run_save_dir):
+            # 如果目录不存在，则创建新目录
+            os.makedirs(self.run_save_dir)
+        print(f"Saving run check point to '{self.run_save_dir}'.")
+
+        self.run_state = {
+            "model": self.model.state_dict(),
+            "current_epoch": self.current_epoch,
+            "optimizer": self.model_optim.state_dict(),
+            "rng_state": torch.get_rng_state(),
+            "early_stopping": None,  # TODO: save early stopping best state
+        }
+
+        torch.save(self.run_state, f"{self.run_checkpoint_filepath}")
+        print("Run state saved ... ")
 
     def _load_from_checkpoint(self, model_path):
         checkpoint = torch.load(model_path, map_location=self.device)
@@ -303,7 +366,7 @@ class Experiment(Settings):
         test_result = {
             name: float(metric.compute()) for name, metric in self.metrics.items()
         }
-        if self.wandb is True:
+        if self._use_wandb():
             for name, metric_value in test_result.items():
                 wandb.run.summary["test_" + name] = metric_value
 
@@ -338,9 +401,11 @@ class Experiment(Settings):
         }
         print(f"wjn corr: {compute_corr(y_truths, y_preds)}")
         print(f"wjn r2: {compute_r2(y_truths, y_preds, aggr_mode='uniform_average')}")
-        print(f"wjn r2 weighted: {compute_r2(y_truths, y_preds, aggr_mode='variance_weighted')}")
+        print(
+            f"wjn r2 weighted: {compute_r2(y_truths, y_preds, aggr_mode='variance_weighted')}"
+        )
         # compute_r2
-        if self.wandb is True:
+        if self._use_wandb():
             for name, metric_value in val_result.items():
                 wandb.run.summary["val_" + name] = metric_value
 
@@ -370,10 +435,11 @@ class Experiment(Settings):
                 progress_bar.set_postfix(
                     loss=loss.item(),
                     lr=self.model_optim.param_groups[0]["lr"],
+                    epoch=self.current_epoch,
                     refresh=True,
                 )
 
-                if self.wandb:
+                if self._use_wandb():
                     wandb.log({"loss": loss.item()}, step=i)
 
                 self.model_optim.step()
@@ -381,24 +447,66 @@ class Experiment(Settings):
     def resume(self, expeiment_checkpoint_path) -> Dict[str, float]:
         pass
 
+    def _check_run_exist(self, seed: str):
+        run_save_dir = os.path.join(
+            self.save_dir,
+            "runs",
+            self.model_type,
+            self.dataset_type,
+            self._run_identifier(seed),
+        )
+
+        run_checkpoint_filepath = os.path.join(run_save_dir, f"run_checkpoint.pth")
+        return os.path.exists(run_checkpoint_filepath)
+
+    def _resume_run(self, seed):
+        # only train loader rshould be checkedpoint to keep the validation and test consistency
+        run_save_dir = os.path.join(
+            self.save_dir,
+            "runs",
+            self.model_type,
+            self.dataset_type,
+            self._run_identifier(seed),
+        )
+
+        run_checkpoint_filepath = os.path.join(run_save_dir, f"run_checkpoint.pth")
+        print(f"resuming from {run_checkpoint_filepath}")
+
+        check_point = torch.load(run_checkpoint_filepath)
+
+        self.model.load_state_dict(check_point["model"])
+        self.model_optim.load_state_dict(check_point["optimizer"])
+        self.current_epoch = check_point["current_epoch"]
+
+
     def run(self, seed=42) -> Dict[str, float]:
         self._setup_run(seed)
+        if self._check_run_exist(seed):
+            self._resume_run(seed)
+
         print(f"run : {self.current_run} in seed: {seed}")
         print(
             f"model parameters: {sum([p.nelement() for p in self.model.parameters()])}"
         )
         epoch_time = time.time()
-        for epoch in range(self.epochs):
-            self.current_epoch = epoch
-            if self.wandb:
-                wandb.run.summary["at_epoch"] = epoch
+        while self.current_epoch < self.epochs:
+            if self._use_wandb():
+                wandb.run.summary["at_epoch"] = self.current_epoch
+            # for resumable reproducibility
+            self.reproducible(seed + self.current_epoch)
             self._train()
-            print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
+            
+            print(
+                "Epoch: {} cost time: {}".format(
+                    self.current_epoch + 1, time.time() - epoch_time
+                )
+            )
 
             # evaluate on vali set
             self._evaluate()
 
-            self._save(seed=seed)
+            self.current_epoch = self.current_epoch + 1
+            self._save_run_check_point(seed)
 
         return self._test()
 
@@ -411,7 +519,7 @@ class Experiment(Settings):
         epoch_time = time.time()
         for epoch in range(self.epochs):
             self.current_epoch = epoch
-            if self.wandb:
+            if self._use_wandb():
                 wandb.run.summary["at_epoch"] = epoch
             self._train()
             print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
@@ -427,12 +535,12 @@ class Experiment(Settings):
         results = []
         for i, seed in enumerate(seeds):
             self.current_run = i
-            if self.wandb:
+            if self._use_wandb():
                 wandb.run.summary["at_run"] = i
             result = self.run(seed=seed)
             results.append(result)
 
-            if self.wandb is True:
+            if self._use_wandb():
                 for name, metric_value in result.items():
                     wandb.run.summary["test_" + name] = metric_value
 
@@ -443,10 +551,11 @@ class Experiment(Settings):
                 lambda x: f"{x['mean']:.4f} ± {x['std']:.4f}", axis=1
             )
         )
-        for index, row in self.metric_mean_std.iterrows():
-            wandb.run.summary[f"{index}_mean"] = row["mean"]
-            wandb.run.summary[f"{index}_std"] = row["std"]
-            wandb.run.summary[index] = f"{row['mean']:.4f}±{row['std']:.4f}"
+        if self._use_wandb():
+            for index, row in self.metric_mean_std.iterrows():
+                wandb.run.summary[f"{index}_mean"] = row["mean"]
+                wandb.run.summary[f"{index}_std"] = row["std"]
+                wandb.run.summary[index] = f"{row['mean']:.4f}±{row['std']:.4f}"
 
 
 def main():
@@ -458,17 +567,16 @@ def main():
         batch_size=32,
         device="cuda:3",
         windows=10,
-        label_len=2,
         epochs=1,
         lr=0.001,
         pred_len=3,
-        seed=1,
         scaler_type="MaxAbsScaler",
     )
 
-    conf = OmegaConf.structured(exp)
-    print(OmegaConf.to_yaml(conf))
+    # conf = OmegaConf.structured(exp)
+    # print(OmegaConf.to_yaml(conf))
 
+    exp._run_identifier()
     # exp = Experiment(settings)
     # exp.run()
 
