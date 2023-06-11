@@ -25,8 +25,8 @@ from torch_timeseries.nn.metric import R2, Corr
 
 
 @dataclass
-class InformerExperiment(Experiment):
-    model_type: str = "Informer"
+class InformerNotsExperiment(Experiment):
+    model_type: str = "Informer-t"
     label_len: int = 48
 
     factor: int = 5
@@ -35,8 +35,7 @@ class InformerExperiment(Experiment):
     e_layers: int = 2
     d_layer: int = 512
     d_ff: int = 512
-    # TODO: fix dropout to 0.3
-    dropout: float = 0.0
+    dropout: float = 0.3
     attn: str = "prob"
     embed: str = "fixed"
     activation = "gelu"
@@ -59,6 +58,7 @@ class InformerExperiment(Experiment):
             activation=self.activation,
             distil=self.distil,
             mix=self.mix,
+            time_embed=False
         )
         self.model = self.model.to(self.device)
 
@@ -86,7 +86,7 @@ class InformerExperiment(Experiment):
 
 
 def main():
-    exp = InformerExperiment(
+    exp = InformerNotsExperiment(
         dataset_type="ETTh1",
         data_path="./data",
         optm_type="Adam",

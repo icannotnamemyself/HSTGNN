@@ -466,7 +466,9 @@ class Experiment(Settings):
         if not os.path.exists(self.run_save_dir):
             # 如果目录不存在，则创建新目录
             os.makedirs(self.run_save_dir)
-        print(f"Creating running results saving dir: '{self.run_save_dir}'.")
+            print(f"Creating running results saving dir: '{self.run_save_dir}'.")
+        else:
+            print(f"result directory exists: {self.run_save_dir}")
         with codecs.open(os.path.join(self.run_save_dir, "args.json"), "w", encoding="utf-8") as f:
             json.dump(asdict(self), f, ensure_ascii=False, indent=4)
 

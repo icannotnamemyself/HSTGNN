@@ -113,13 +113,16 @@ class TimeFeatureEmbedding(nn.Module):
 
 class DataEmbedding(nn.Module):
     # TODO: freq d,m embeddings
-    def __init__(self, c_in, d_model, embed_type='fixed', freq='h', dropout=0.1):
+    def __init__(self, c_in, d_model, embed_type='fixed', freq='h', dropout=0.1, time_embed=True):
         super(DataEmbedding, self).__init__()
 
+        self.time_embed = time_embed
+        
         self.value_embedding = TokenEmbedding(c_in=c_in, d_model=d_model)
         self.position_embedding = PositionalEmbedding(d_model=d_model)
-        self.temporal_embedding = TemporalEmbedding(d_model=d_model, embed_type=embed_type, freq=freq) if embed_type != 'timeF' else TimeFeatureEmbedding(
-            d_model=d_model, embed_type=embed_type, freq=freq)
+        if self.time_embed:
+            self.temporal_embedding = TemporalEmbedding(d_model=d_model, embed_type=embed_type, freq=freq) if embed_type != 'timeF' else TimeFeatureEmbedding(
+                d_model=d_model, embed_type=embed_type, freq=freq)
 
         self.d_model = d_model
         self.c_in = c_in
@@ -127,6 +130,11 @@ class DataEmbedding(nn.Module):
         
 
     def forward(self, x, x_mark):
-        x = self.value_embedding(
-            x) + self.position_embedding(x) + self.temporal_embedding(x_mark)
+        if self.time_embed:
+            x = self.value_embedding(
+                x) + self.position_embedding(x) + self.temporal_embedding(x_mark)
+        else:
+            x = self.value_embedding(
+                x) + self.position_embedding(x)
+
         return self.dropout(x)

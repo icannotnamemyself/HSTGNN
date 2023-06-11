@@ -58,7 +58,7 @@ class GRUExperiment(Experiment):
     num_layers: float = 2
     invtrans_loss: bool = False
 
-    def _init_model_optm(self):
+    def _init_model(self):
         self.model = GRU(
             self.dataset.num_features,
             self.windows,
@@ -69,9 +69,6 @@ class GRUExperiment(Experiment):
         )
         self.model = self.model.to(self.device)
 
-        self.model_optim = self._parse_type(self.optm_type)(
-            self.model.parameters(), lr=self.lr, weight_decay=self.l2_weight_decay
-        )
 
     def _process_one_batch(self, batch_x, batch_y, batch_x_date_enc, batch_y_date_enc):
         batch_x = batch_x.to(self.device)

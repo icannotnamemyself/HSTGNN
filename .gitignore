@@ -5,6 +5,10 @@ dist
 build
 .vscode
 
+*.pth
+./results
+args.json
+
 run
 logs
 save

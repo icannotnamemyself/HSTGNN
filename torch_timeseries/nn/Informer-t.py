@@ -8,11 +8,11 @@ from .decoder import Decoder, DecoderLayer
 from .attention import FullAttention, ProbAttention, AttentionLayer
 from .embedding import DataEmbedding
 
-class Informer(nn.Module):
+class InformerNT(nn.Module):
     def __init__(self, enc_in:int, dec_in:int, c_out:int, out_len:int, 
                 factor=5, d_model=512, n_heads=8, e_layers=3, d_layers=2, d_ff=512, 
                 dropout=0.0, attn='prob', embed='fixed', freq='h', activation='gelu', 
-                output_attention = False, distil=True, mix=True, time_embed=True):
+                output_attention = False, distil=True, mix=True):
         """_summary_
 
         Args:
@@ -41,8 +41,8 @@ class Informer(nn.Module):
         self.output_attention = output_attention
 
         # Encoding
-        self.enc_embedding = DataEmbedding(enc_in, d_model, embed, freq, dropout, time_embed=time_embed)
-        self.dec_embedding = DataEmbedding(dec_in, d_model, embed, freq, dropout, time_embed=time_embed)
+        self.enc_embedding = DataEmbedding(enc_in, d_model, embed, freq, dropout)
+        self.dec_embedding = DataEmbedding(dec_in, d_model, embed, freq, dropout)
         # Attention
         Attn = ProbAttention if attn=='prob' else FullAttention
         # Encoder
