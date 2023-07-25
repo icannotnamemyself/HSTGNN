@@ -19,7 +19,10 @@ class SolarEnergy(TimeSeriesDataset):
     num_features: int = 137
     sample_rate: int  # in munites
     length: int = 105120
+    freq:str = 'h'
+    
     file_name = "solar_AL.csv"
+    windows : int = 168
 
     def download(self) -> None:
         download_and_extract_archive(

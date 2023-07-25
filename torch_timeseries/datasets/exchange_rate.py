@@ -13,6 +13,10 @@ class ExchangeRate(TimeSeriesDataset):
     num_features: int = 8
     freq: str = 'd' # daily data
     length : int = 7588
+    windows : int = 48
+
+    
+    
     def download(self) -> None:
         download_url(
             "https://raw.githubusercontent.com/wayne155/multivariate_timeseries_datasets/main/exchange_rate/exchange_rate.csv",

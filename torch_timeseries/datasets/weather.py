@@ -14,6 +14,9 @@ class Weather(TimeSeriesDataset):
     num_features: int = 21
     sample_rate:int # in munites
     length : int  = 52696
+    freq:str=  'h'
+    windows : int = 168
+    
     
     def download(self):
         download_and_extract_archive(

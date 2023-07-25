@@ -16,6 +16,8 @@ class Traffic(TimeSeriesDataset):
     num_features: int = 862
     sample_rate:int # in munites
     length : int = 17544
+    windows : int = 168
+    freq:str = 'h'
     
     def download(self) -> None:
         download_and_extract_archive(

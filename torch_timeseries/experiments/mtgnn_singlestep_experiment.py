@@ -82,8 +82,11 @@ class MTGNNExperiment(Experiment):
         self.model = self.model.to(self.device)
 
     def _process_one_batch(self, batch_x, batch_y, batch_x_date_enc, batch_y_date_enc):
-        batch_x = batch_x.to(self.device)
-        batch_y = batch_y.to(self.device)
+        # ouputs:
+        # - pred: (B, N)/(B, O, N)
+        # - label: (B, N)/(B, O, N)
+        batch_x = batch_x.to(self.device, dtype=torch.float32)
+        batch_y = batch_y.to(self.device, dtype=torch.float32)
         batch_x_date_enc = batch_x_date_enc.to(self.device)
         batch_y_date_enc = batch_y_date_enc.to(self.device)
         input_x = batch_x.unsqueeze(1)
@@ -98,7 +101,7 @@ class MTGNNExperiment(Experiment):
         else:
             pred = outputs
             batch_y = batch_y
-        return pred.squeeze(), batch_y.squeeze()
+        return pred.squeeze(1), batch_y.squeeze(1)
 
 
 # def main():

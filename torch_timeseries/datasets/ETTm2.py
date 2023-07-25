@@ -15,6 +15,7 @@ class ETTm2(TimeSeriesDataset):
     num_features: int = 7
     freq : Freq = 't'
     length : int  = 69680
+    windows : int = 384
     
     def download(self):
         download_url(

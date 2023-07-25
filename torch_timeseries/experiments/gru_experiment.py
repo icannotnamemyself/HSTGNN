@@ -82,7 +82,7 @@ class GRUExperiment(Experiment):
             preds = outputs
             batch_y = batch_y
 
-        return preds.squeeze(), batch_y.squeeze()
+        return preds.squeeze(1), batch_y.squeeze(1)
 
 
 def main():

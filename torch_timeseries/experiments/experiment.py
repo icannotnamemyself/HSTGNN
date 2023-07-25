@@ -29,7 +29,7 @@ from torch.utils.data import Dataset, DataLoader, RandomSampler, Subset
 from torch.nn import DataParallel
 from dataclasses import asdict, dataclass
 
-from torch_timeseries.nn.metric import R2, Corr, compute_corr, compute_r2
+from torch_timeseries.nn.metric import R2, Corr, TrendAcc, compute_corr, compute_r2
 from torch_timeseries.utils.early_stopping import EarlyStopping
 import json
 import codecs
@@ -43,7 +43,7 @@ class ResultRelatedSettings:
     model_type: str = ""
     scaler_type: str = "StandarScaler"
     loss_func_type: str = "mse"
-    batch_size: int = 128
+    batch_size: int = 32
     lr: float = 0.0003
     l2_weight_decay: float = 0.0005
     epochs: int = 1
@@ -52,7 +52,7 @@ class ResultRelatedSettings:
     windows: int = 384
     pred_len: int = 1
 
-    patience: int = 8
+    patience: int = 5
     max_grad_norm: float = 5.0
 
 
@@ -74,7 +74,7 @@ class Experiment(Settings):
         run = wandb.init(
             project=project,
             name=name,
-            tags=[self.model_type, self.dataset_type, f"horizon-{self.horizon}"],
+            tags=[self.model_type, self.dataset_type, f"horizon-{self.horizon}", f"window-{self.windows}"],
         )
         wandb.config.update(asdict(self))
         self.wandb = True
@@ -116,9 +116,11 @@ class Experiment(Settings):
                 "mse": MeanSquaredError(),
                 "corr": Corr(),
                 "mae": MeanAbsoluteError(),
-                # "trend_acc" : TrendAcc()
             }
-        ).to(self.device)
+        )
+        
+        self.metrics.to(self.device)
+
 
     def _run_identifier(self, seed) -> str:
         ident = asdict(self)
@@ -171,7 +173,7 @@ class Experiment(Settings):
         print(f"test steps: {self.test_steps}")
 
     def _init_data_loader(self):
-        self.dataset = self._parse_type(self.dataset_type)(root=self.data_path)
+        self.dataset : TimeSeriesDataset = self._parse_type(self.dataset_type)(root=self.data_path)
         self.scaler = self._parse_type(self.scaler_type)()
         self.dataloader = ChunkSequenceTimefeatureDataLoader(
             self.dataset,
@@ -330,7 +332,7 @@ class Experiment(Settings):
 
     def reproducible(self, seed):
         # for reproducibility
-        torch.set_default_tensor_type(torch.DoubleTensor)
+        torch.set_default_tensor_type(torch.FloatTensor)
         torch.manual_seed(seed)
         os.environ["PYTHONHASHSEED"] = str(seed)
         torch.cuda.manual_seed_all(seed)
@@ -341,30 +343,22 @@ class Experiment(Settings):
         torch.backends.cudnn.determinstic = True
 
     def _process_one_batch(self, batch_x, batch_y, batch_x_date_enc, batch_y_date_enc):
-        batch_x = batch_x.to(self.device)
-        batch_y = batch_y.to(self.device)
-        batch_x_date_enc = batch_x_date_enc.to(self.device)
-        batch_y_date_enc = batch_y_date_enc.to(self.device)
-
-        dec_inp_pred = torch.zeros(
-            [batch_x.size(0), self.pred_len, self.dataset.num_features]
-        ).to(self.device)
-        dec_inp_label = batch_x[:, -self.label_len :, :].to(self.device)
-
-        dec_inp = torch.cat([dec_inp_label, dec_inp_pred], dim=1)
-        dec_inp_date_enc = torch.cat(
-            [batch_x_date_enc[:, -self.label_len :, :], batch_y_date_enc], dim=1
-        )
-        outputs = self.model(batch_x, batch_x_date_enc, dec_inp, dec_inp_date_enc)
-        pred = self.dataloader.scaler.inverse_transform(outputs)
-        batch_y = self.dataloader.scaler.inverse_transform(batch_y)
-
-        return pred.squeeze(), batch_y.squeeze()
-
+        # inputs:
+            # batch_x:  (B, T, N)
+            # batch_y:  (B, T, Steps)
+            # batch_x_date_enc:  (B, T, N)
+            # batch_y_date_enc:  (B, T, Steps)
+            
+        # outputs:
+            # pred: 
+            # label:  (B,O,N)
+        raise NotImplementedError()
+    
+    
     def _test(self) -> Dict[str, float]:
         self.model.eval()
         self.metrics.reset()
-        print("Evaluating .... ")
+        print("Testing .... ")
         with tqdm(total=self.test_steps) as progress_bar:
             for (
                 batch_x,
@@ -443,6 +437,7 @@ class Experiment(Settings):
                     batch_x, batch_y, batch_x_date_enc, batch_y_date_enc
                 )
 
+                
                 loss = self.loss_func(pred, true)
                 loss.backward()
 
@@ -488,7 +483,7 @@ class Experiment(Settings):
         run_checkpoint_filepath = os.path.join(run_save_dir, f"run_checkpoint.pth")
         print(f"resuming from {run_checkpoint_filepath}")
 
-        check_point = torch.load(run_checkpoint_filepath)
+        check_point = torch.load(run_checkpoint_filepath, map_location=self.device)
 
         self.model.load_state_dict(check_point["model"])
         self.model_optim.load_state_dict(check_point["optimizer"])
@@ -497,7 +492,7 @@ class Experiment(Settings):
         self.early_stopper.set_state(check_point["early_stopping"])
        
     def _load_best_model(self):
-        self.model.load_state_dict(torch.load(self.best_checkpoint_filepath))
+        self.model.load_state_dict(torch.load(self.best_checkpoint_filepath, map_location=self.device))
 
     def run(self, seed=42) -> Dict[str, float]:
         self._setup_run(seed)
@@ -564,7 +559,7 @@ class Experiment(Settings):
 
         return self._test()
 
-    def runs(self, seeds: List[int] = [42, 234, 123, 345, 821]):
+    def runs(self, seeds: List[int] = [42,233,666,19971203,19980224]):
         results = []
         for i, seed in enumerate(seeds):
             self.current_run = i

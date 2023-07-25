@@ -115,7 +115,6 @@ class MTGNN(nn.Module):
                     adp = self.gc(idx)
             else:
                 adp = self.predefined_A
-
         x = self.start_conv(input)
         if  self.skip_layer:
             skip = self.skip0(F.dropout(input, self.dropout, training=self.training))

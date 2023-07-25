@@ -39,7 +39,10 @@ class MultiStepTimeFeatureSet(Dataset):
         return self.scaler.inverse_transform(values)
 
     def __getitem__(self, index):
-        # 如果是数字索引，则返回单个数据项
+        # x : (B, T, N)
+        # y : (B, O, N)
+        # x_date_enc : (B, T, D)
+        # y_date_eDc : (B, O, D)
         if isinstance(index, int):
             x = self.scaled_data[index:index+self.window]
             x_date_enc = self.date_enc_data[index:index+self.window]

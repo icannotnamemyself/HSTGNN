@@ -15,6 +15,8 @@ class ILI(TimeSeriesDataset):
     num_features: int = 7
     sample_rate:int # in munites
     length : int  = 966
+    freq:str = 'h'
+    windows : int = 48
     
     def download(self):
         download_and_extract_archive(

@@ -15,6 +15,7 @@ class ETTh1(TimeSeriesDataset):
     num_features: int = 7
     length : int  = 17420
     freq : Freq = 'h'
+    windows : int = 384
     
     def download(self):
         download_url(
