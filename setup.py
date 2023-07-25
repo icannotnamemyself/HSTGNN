@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-__version__ = '0.0.1'
+__version__ = '0.0.2'
 URL = 'https://github.com/theoYe/pytorch_timeseries'
 
 install_requires = [
@@ -45,6 +45,7 @@ setup(
         'test': test_requires,
         'dev': dev_requires,
     },
-    packages=find_packages(),
+    package_dir={"torch_timeseries":"torch_timeseries"},
+    packages=find_packages(exclude=['test']),
     include_package_data=True,
 )
