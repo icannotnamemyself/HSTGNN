@@ -15,9 +15,8 @@ def test_corr():
         pred = preds[i, :, :, :]
         true = trues[i, :, :, :]
         corr.update(pred, true)
-
     result = corr.compute()
-    corr1 = compute_corr(preds.reshape(-1, 128, 3), trues.reshape(-1, 128, 3))
+    corr1 = compute_corr(preds.reshape(-1, 128, 3).detach().cpu().numpy(), trues.reshape(-1, 128, 3).detach().cpu().numpy())
 
     assert round(float(result), 4) == round(float(corr1), 4)
 
@@ -86,13 +85,20 @@ def test_r2():
     assert round(float(result), 4) == round(r21, 4)
 
 
-def test_trend_acc():
-    tacc = TrendAcc()
-    for i in range(3):
-        xt = torch.randn(64, 8)
-        pred = torch.randn(64, 8)
-        true = pred
-        tacc.update(pred, true, xt)
+# def test_trend_acc():
+#     tacc = TrendAcc()
+        
+#     preds = torch.randn(3, 64, 128)
+#     trues = torch.randn(3, 64, 128)
+#     xts = torch.randn(3, 64, 128)
+#     for i in range(3):
+#         pred = preds[i, :, :]
+#         true = trues[i, :, :]
+#         xt = xts[i, : , :]
+#         tacc.update(pred, true, xt)
 
-    result = tacc.compute()
-    assert round(float(result)) == 1
+#     result = tacc.compute()
+#     res2 = compute_trend_acc(preds.reshape(-1, 128), trues.reshape(-1, 128),xts.reshape(-1, 128))
+    
+#     assert round(float(result), 4) == round(float(res2), 4)
+

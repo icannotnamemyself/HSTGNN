@@ -11,13 +11,16 @@ from tqdm import tqdm
 def test_timesnet(dummy_dataset_time: TimeSeriesDataset):
     torch.set_default_tensor_type(torch.FloatTensor)
     batch_size =  32
+    window  = 7
+    steps = 3
+    horizon = 3
     dataset = MultiStepTimeFeatureSet(
-        dummy_dataset_time,scaler=StandarScaler(), window=7, horizon=3, steps=3)
+        dummy_dataset_time,scaler=StandarScaler(), window=window, horizon=horizon, steps=steps)
     srs = SequenceSplitter(batch_size=batch_size)
-    pred_len = 3
+    pred_len = steps
     label_len = 2
     assert pred_len >= label_len
-    model = TimesNet(enc_in=dummy_dataset_time.num_features, c_out=dummy_dataset_time.num_features, pred_len=pred_len)
+    model = TimesNet(seq_len=window,pred_len=steps,label_len=label_len,enc_in=dummy_dataset_time.num_features, c_out=dummy_dataset_time.num_features,  freq=dummy_dataset_time.freq)
     train_loader, val_loader, test_loader = srs(dataset)
     
     with tqdm( total=len(train_loader)) as progress_bar:
@@ -33,6 +36,7 @@ def test_timesnet(dummy_dataset_time: TimeSeriesDataset):
             dec_inp = torch.cat([dec_inp_label,dec_inp_pred], dim=1)
             
             dec_inp_date_enc = torch.cat([batch_x_date_enc[:, -label_len:, :],batch_y_date_enc], dim=1)
+            import pdb;pdb.set_trace()
             outputs = model(batch_x, batch_x_date_enc, dec_inp, dec_inp_date_enc)
             assert outputs[:, -pred_len:, :].shape == batch_y.shape
 

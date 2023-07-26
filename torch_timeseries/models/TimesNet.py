@@ -74,6 +74,15 @@ class TimesNet(nn.Module):
     """
 
     def __init__(self, seq_len=96, label_len=48, pred_len=96,e_layers=2,d_ff=2048,num_kernels=6,top_k=5, d_model=512, enc_in=7, embed='timeF', freq='h', dropout=0.0 ,c_out=7,task_name="long_term_forecast",num_class=0):
+        """Times net model ICLR 2023
+
+        Args:
+            seq_len (int, optional): input window length. Defaults to 96.
+            label_len (int, optional): decoder input length. Defaults to 48.
+            pred_len (int, optional): total predict stpes. Defaults to 96.
+            enc_in (int, optional): encoder input feature numbers. Defaults to 7.
+            c_out (int, optional): decoder output feature numbers. Defaults to 7.
+        """
         super(TimesNet, self).__init__()
         self.task_name = task_name
         self.seq_len = seq_len

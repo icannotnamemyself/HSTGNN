@@ -1,9 +1,10 @@
+import datetime
 import json
 import os
 import random
 import time
 import hashlib
-
+####
 from typing import Dict, List, Type, Union
 import numpy as np
 import torch
@@ -84,6 +85,17 @@ class Experiment(Settings):
     def _use_wandb(self):
         return hasattr(self, "wandb")
 
+    
+    def _run_print(self, *args, **kwargs):
+        time = '['+str(datetime.datetime.utcnow()+
+                   datetime.timedelta(hours=8))[:19]+'] -'
+        
+        print(*args, **kwargs)
+        if hasattr(self, "run_setuped") and getattr(self, "run_setuped") is True:
+            with open(os.path.join(self.run_save_dir, 'output.log'), 'a+') as f:
+                print(time, *args, flush=True, file=f)
+
+    
     def config_wandb_verbose(
         self,
         project: str,
@@ -153,6 +165,7 @@ class Experiment(Settings):
             steps=self.pred_len,
             scale_in_train=False,
             shuffle_train=True,
+            # TODO: dataset specific freqency settings
             freq="h",
             batch_size=self.batch_size,
             train_ratio=0.7,
@@ -258,6 +271,9 @@ class Experiment(Settings):
         self.early_stopper = EarlyStopping(
             self.patience, verbose=True, path=self.best_checkpoint_filepath
         )
+        
+        
+        self.run_setuped = True
         
         
         
@@ -379,7 +395,7 @@ class Experiment(Settings):
             for name, metric_value in test_result.items():
                 wandb.run.summary["test_" + name] = metric_value
 
-        print(f"test_results: {test_result}")
+        self._run_print(f"test_results: {test_result}")
         return test_result
 
     def _evaluate(self):
@@ -418,7 +434,7 @@ class Experiment(Settings):
             for name, metric_value in val_result.items():
                 wandb.run.summary["val_" + name] = metric_value
 
-        print(f"vali_results: {val_result}")
+        self._run_print(f"vali_results: {val_result}")
         return val_result
 
     def _train(self):
@@ -499,14 +515,20 @@ class Experiment(Settings):
         if self._check_run_exist(seed):
             self._resume_run(seed)
 
-        print(f"run : {self.current_run} in seed: {seed}")
-        print(
-            f"model parameters: {sum([p.nelement() for p in self.model.parameters()])}"
+        self._run_print(f"run : {self.current_run} in seed: {seed}")
+        
+        self.model_parameters_num = sum([p.nelement() for p in self.model.parameters()])
+        self._run_print(
+            f"model parameters: {self.model_parameters_num}"
         )
+        if self._use_wandb():
+            wandb.run.summary["parameters"] = self.model_parameters_num
+        # for resumable reproducibility
+
         epoch_time = time.time()
         while self.current_epoch < self.epochs:
             if self.early_stopper.early_stop is True:
-                print(
+                self._run_print(
                     f"loss no decreased for {self.patience} epochs,  early stopping ...."
                 )
                 break
@@ -517,7 +539,7 @@ class Experiment(Settings):
             self.reproducible(seed + self.current_epoch)
             self._train()
 
-            print(
+            self._run_print(
                 "Epoch: {} cost time: {}".format(
                     self.current_epoch + 1, time.time() - epoch_time
                 )
@@ -535,7 +557,7 @@ class Experiment(Settings):
 
         self._load_best_model()
         best_test_result = self._test()
-
+        self.run_setuped = False
         return best_test_result
 
     def dp_run(self, seed=42, device_ids: List[int] = [0, 2, 4, 6], output_device=0):
