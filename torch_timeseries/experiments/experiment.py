@@ -5,6 +5,7 @@ import random
 import time
 import hashlib
 from torch.cuda.amp import autocast, GradScaler
+from prettytable import PrettyTable
 
 ####
 from typing import Dict, List, Type, Union
@@ -66,6 +67,22 @@ class Settings(ResultRelatedSettings):
     num_worker: int = 20
     save_dir: str = "./results"
     experiment_label: str = str(int(time.time()))
+
+
+
+
+def count_parameters(model, print_fun=print):
+    table = PrettyTable(["Modules", "Parameters"])
+    total_params = 0
+    for name, parameter in model.named_parameters():
+        if not parameter.requires_grad:
+            continue
+        params = parameter.numel()
+        table.add_row([name, params])
+        total_params += params
+    print_fun(table)
+    print_fun(f"Total Trainable Params: {total_params}")
+    return total_params
 
 
 class Experiment(Settings):
@@ -259,6 +276,7 @@ class Experiment(Settings):
             "runs",
             self.model_type,
             self.dataset_type,
+            f"w{self.windows}h{self.horizon}s{self.pred_len}",
             self._run_identifier(seed),
         )
 
@@ -499,15 +517,8 @@ class Experiment(Settings):
 
     def _resume_run(self, seed):
         # only train loader rshould be checkedpoint to keep the validation and test consistency
-        run_save_dir = os.path.join(
-            self.save_dir,
-            "runs",
-            self.model_type,
-            self.dataset_type,
-            self._run_identifier(seed),
-        )
 
-        run_checkpoint_filepath = os.path.join(run_save_dir, f"run_checkpoint.pth")
+        run_checkpoint_filepath = os.path.join(self.run_save_dir, f"run_checkpoint.pth")
         print(f"resuming from {run_checkpoint_filepath}")
 
         check_point = torch.load(run_checkpoint_filepath, map_location=self.device)
@@ -528,7 +539,7 @@ class Experiment(Settings):
 
         self._run_print(f"run : {self.current_run} in seed: {seed}")
         
-        self.model_parameters_num = sum([p.nelement() for p in self.model.parameters()])
+        self.model_parameters_num = count_parameters(self.model, self._run_print)
         self._run_print(
             f"model parameters: {self.model_parameters_num}"
         )

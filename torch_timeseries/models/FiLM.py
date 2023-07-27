@@ -68,7 +68,7 @@ class SpectralConv1d(nn.Module):
         self.modes = min(32, seq_len // 2)
         self.index = list(range(0, self.modes))
 
-        self.scale = (1 / (in_channels * out_channels))
+        self.scale = (1.0 / (in_channels * out_channels)) # 
         self.weights_real = nn.Parameter(
             self.scale * torch.rand(in_channels, out_channels, len(self.index), dtype=torch.float))
         self.weights_imag = nn.Parameter(
@@ -88,48 +88,42 @@ class SpectralConv1d(nn.Module):
         return x
 
 
-class Model(nn.Module):
+class FiLM(nn.Module):
     """
     Paper link: https://arxiv.org/abs/2205.08897
     """
-    def __init__(self, configs):
-        super(Model, self).__init__()
-        self.task_name = configs.task_name
-        self.configs = configs
-        # self.modes = configs.modes
-        self.seq_len = configs.seq_len
-        self.label_len = configs.label_len
-        self.pred_len = configs.seq_len if configs.pred_len == 0 else configs.pred_len
+    def __init__(self,seq_len,pred_len,enc_in,c_out,d_model,dropout=0.05,num_class=0, task_name="long_term_forecast"):
+        super(FiLM, self).__init__()
+        self.task_name = task_name
+        # self.modes = modes
+        self.seq_len = seq_len
+        self.pred_len = seq_len if pred_len == 0 else pred_len
 
-        self.seq_len_all = self.seq_len + self.label_len
 
-        self.output_attention = configs.output_attention
-        self.layers = configs.e_layers
-        self.enc_in = configs.enc_in
-        self.e_layers = configs.e_layers
+        self.enc_in = enc_in
         # b, s, f means b, f
-        self.affine_weight = nn.Parameter(torch.ones(1, 1, configs.enc_in))
-        self.affine_bias = nn.Parameter(torch.zeros(1, 1, configs.enc_in))
+        self.affine_weight = nn.Parameter(torch.ones(1, 1, enc_in))
+        self.affine_bias = nn.Parameter(torch.zeros(1, 1, enc_in))
 
         self.multiscale = [1, 2, 4]
         self.window_size = [256]
-        configs.ratio = 0.5
+        ratio = 0.5
         self.legts = nn.ModuleList(
             [HiPPO_LegT(N=n, dt=1. / self.pred_len / i) for n in self.window_size for i in self.multiscale])
         self.spec_conv_1 = nn.ModuleList([SpectralConv1d(in_channels=n, out_channels=n,
                                                          seq_len=min(self.pred_len, self.seq_len),
-                                                         ratio=configs.ratio) for n in
+                                                         ratio=ratio) for n in
                                           self.window_size for _ in range(len(self.multiscale))])
         self.mlp = nn.Linear(len(self.multiscale) * len(self.window_size), 1)
 
         if self.task_name == 'imputation' or self.task_name == 'anomaly_detection':
             self.projection = nn.Linear(
-                configs.d_model, configs.c_out, bias=True)
+                d_model, c_out, bias=True)
         if self.task_name == 'classification':
             self.act = F.gelu
-            self.dropout = nn.Dropout(configs.dropout)
+            self.dropout = nn.Dropout(dropout)
             self.projection = nn.Linear(
-                configs.enc_in * configs.seq_len, configs.num_class)
+                enc_in * seq_len, num_class)
 
     def forecast(self, x_enc, x_mark_enc, x_dec_true, x_mark_dec):
         # Normalization from Non-stationary Transformer

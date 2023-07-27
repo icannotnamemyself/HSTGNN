@@ -1,6 +1,7 @@
 import random
 import time
 from typing import Dict, List, Type
+import fire
 import numpy as np
 import torch
 from torchmetrics import MeanSquaredError, MetricCollection
@@ -12,7 +13,7 @@ from torch_timeseries.datasets.dataset import TimeSeriesDataset
 from torch_timeseries.datasets.splitter import SequenceSplitter
 from torch_timeseries.datasets.wrapper import MultiStepTimeFeatureSet
 from torch_timeseries.experiments.experiment import Experiment
-from torch_timeseries.models import MICN
+from torch_timeseries.models import LightTS
 from torch.nn import MSELoss, L1Loss
 from omegaconf import OmegaConf
 
@@ -26,35 +27,24 @@ from torch_timeseries.nn.metric import R2, Corr
 
 
 @dataclass
-class MICNExperiment(Experiment):
-    model_type: str = "MICN"
+class LightTSExperiment(Experiment):
+    model_type: str = "LightTS"
     
     d_model: int = 512
-    e_layers: int = 2
-    d_ff: int = 512  # out of memoery with d_ff = 2048
-    dropout: float = 0.0
-    n_heads : int = 8
-    d_layers : int = 2
-    freq : str = 'h'
-    
-    conv_kernel : List[int] = [12,16]
+    dropout : float = 0.0
+    chunk_size : int = 24
     
     
     
     
     def _init_model(self):
-        self.model = MICN(
+        self.model = LightTS(
             seq_len=self.windows,
             pred_len=self.pred_len,
             enc_in=self.dataset.num_features,
-            c_out=self.dataset.num_features,
-            n_heads=self.n_heads,
-            dropout=self.dropout,
-            e_layers=self.e_layers,
             d_model=self.d_model,
-            d_layers=self.d_layers,
-            conv_kernel = self.conv_kernel,
-            embed="timeF",
+            dropout=self.dropout,
+            chunk_size=self.chunk_size,
             task_name="long_term_forecast",
             num_class=0
             )
@@ -82,42 +72,11 @@ class MICNExperiment(Experiment):
         return outputs.squeeze(), batch_y.squeeze()
 
 
-    def _init_data_loader(self):
-        self.dataset : TimeSeriesDataset = self._parse_type(self.dataset_type)(root=self.data_path)
-        self.scaler = self._parse_type(self.scaler_type)()
-        self.dataloader = ChunkSequenceTimefeatureDataLoader(
-            self.dataset,
-            self.scaler,
-            window=self.windows,
-            horizon=self.horizon,
-            steps=self.pred_len,
-            scale_in_train=False,
-            shuffle_train=True,
-            freq=self.freq,
-            batch_size=self.batch_size,
-            train_ratio=0.7,
-            val_ratio=0.2,
-            num_worker=self.num_worker,
-        )
-        self.train_loader, self.val_loader, self.test_loader = (
-            self.dataloader.train_loader,
-            self.dataloader.val_loader,
-            self.dataloader.test_loader,
-        )
-        self.train_steps = self.dataloader.train_size
-        self.val_steps = self.dataloader.val_size
-        self.test_steps = self.dataloader.test_size
-
-        print(f"train steps: {self.train_steps}")
-        print(f"val steps: {self.val_steps}")
-        print(f"test steps: {self.test_steps}")
-
 
 def main():
-    exp = MICNExperiment(dataset_type="ExchangeRate", windows=96)
-
+    exp = LightTSExperiment(dataset_type="ExchangeRate", windows=96)
     exp.run()
 
 
 if __name__ == "__main__":
-    fire.Fire(MICNExperiment)
+    fire.Fire(LightTSExperiment)

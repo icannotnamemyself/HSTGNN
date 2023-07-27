@@ -36,37 +36,37 @@ class IEBlock(nn.Module):
         return x
 
 
-class Model(nn.Module):
+class LightTS(nn.Module):
     """
     Paper link: https://arxiv.org/abs/2207.01186
     """
 
-    def __init__(self, configs, chunk_size=24):
+    def __init__(self, seq_len,pred_len,enc_in,d_model=512,dropout=0.0,num_class=0, chunk_size=24, task_name="long_term_forecast"):
         """
         chunk_size: int, reshape T into [num_chunks, chunk_size]
         """
-        super(Model, self).__init__()
-        self.task_name = configs.task_name
-        self.seq_len = configs.seq_len
+        super(LightTS, self).__init__()
+        self.task_name = task_name
+        self.seq_len = seq_len
         if self.task_name == 'classification' or self.task_name == 'anomaly_detection' or self.task_name == 'imputation':
-            self.pred_len = configs.seq_len
+            self.pred_len = seq_len
         else:
-            self.pred_len = configs.pred_len
+            self.pred_len = pred_len
 
-        if configs.task_name == 'long_term_forecast' or configs.task_name == 'short_term_forecast':
-            self.chunk_size = min(configs.pred_len, configs.seq_len, chunk_size)
+        if task_name == 'long_term_forecast' or task_name == 'short_term_forecast':
+            self.chunk_size = min(pred_len, seq_len, chunk_size)
         else:
-            self.chunk_size = min(configs.seq_len, chunk_size)
+            self.chunk_size = min(seq_len, chunk_size)
         assert (self.seq_len % self.chunk_size == 0)
         self.num_chunks = self.seq_len // self.chunk_size
 
-        self.d_model = configs.d_model
-        self.enc_in = configs.enc_in
-        self.dropout = configs.dropout
+        self.d_model = d_model
+        self.enc_in = enc_in
+        self.dropout = dropout
         if self.task_name == 'classification':
             self.act = F.gelu
-            self.dropout = nn.Dropout(configs.dropout)
-            self.projection = nn.Linear(configs.enc_in * configs.seq_len, configs.num_class)
+            self.dropout = nn.Dropout(dropout)
+            self.projection = nn.Linear(enc_in * seq_len, num_class)
         self._build()
 
     def _build(self):
