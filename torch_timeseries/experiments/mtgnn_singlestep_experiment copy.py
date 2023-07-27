@@ -95,13 +95,7 @@ class MTGNNExperiment(Experiment):
         )  # torch.Size([batch_size, 1, num_nodes, windows])
         outputs = self.model(input_x)  # torch.Size([batch_size, seq_len, num_nodes, 1])
         outputs = outputs.squeeze(3)
-        if self.invtrans_loss:
-            pred = self.scaler.inverse_transform(outputs)
-            batch_y = self.scaler.inverse_transform(batch_y)
-        else:
-            pred = outputs
-            batch_y = batch_y
-        return pred.squeeze(1), batch_y.squeeze(1)
+        return outputs.squeeze(1), batch_y.squeeze(1)
 
 
 # def main():

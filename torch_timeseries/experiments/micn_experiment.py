@@ -1,6 +1,6 @@
 import random
 import time
-from typing import Dict, Type
+from typing import Dict, List, Type
 import numpy as np
 import torch
 from torchmetrics import MeanSquaredError, MetricCollection
@@ -12,7 +12,7 @@ from torch_timeseries.datasets.dataset import TimeSeriesDataset
 from torch_timeseries.datasets.splitter import SequenceSplitter
 from torch_timeseries.datasets.wrapper import MultiStepTimeFeatureSet
 from torch_timeseries.experiments.experiment import Experiment
-from torch_timeseries.models import TimesNet
+from torch_timeseries.models import MICN
 from torch.nn import MSELoss, L1Loss
 from omegaconf import OmegaConf
 
@@ -20,42 +20,42 @@ from torch.optim import Optimizer, Adam
 
 import wandb
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 
 from torch_timeseries.nn.metric import R2, Corr
 
 
 @dataclass
-class TimesNetExperiment(Experiment):
-    model_type: str = "TimesNet"
+class MICNExperiment(Experiment):
+    model_type: str = "MICN"
     
-    label_len: int = 48
     d_model: int = 512
     e_layers: int = 2
     d_ff: int = 512  # out of memoery with d_ff = 2048
-    num_kernels: int = 6
-    top_k: int = 5
     dropout: float = 0.0
-    embed: str = "timeF"
-    freq: str = 'h'
+    n_heads : int = 8
+    d_layers : int = 2
+    freq : str = 'h'
+    
+    conv_kernel : List[int] = field(default_factory=lambda: [12,16]) 
+    
+    
     
     
     def _init_model(self):
-        self.model = TimesNet(
-            seq_len=self.windows, 
-            label_len=self.label_len,
-            pred_len=self.pred_len, 
-            e_layers=self.e_layers, 
-            d_ff=self.d_ff,
-            num_kernels=self.num_kernels,
-            top_k=self.top_k,
-            d_model=self.d_model,
-            embed=self.embed,
+        self.model = MICN(
+            seq_len=self.windows,
+            pred_len=self.pred_len,
             enc_in=self.dataset.num_features,
-            freq=self.freq,
-            dropout=self.dropout,
             c_out=self.dataset.num_features,
+            n_heads=self.n_heads,
+            dropout=self.dropout,
+            d_model=self.d_model,
+            d_layers=self.d_layers,
+            conv_kernel = self.conv_kernel,
+            embed="fixed",
             task_name="long_term_forecast",
+            num_class=0
             )
         self.model = self.model.to(self.device)
 
@@ -65,14 +65,16 @@ class TimesNetExperiment(Experiment):
         batch_x_date_enc = batch_x_date_enc.to(self.device).float()
         batch_y_date_enc = batch_y_date_enc.to(self.device).float()
 
+        
+        # no decoder input
         dec_inp_pred = torch.zeros(
             [batch_x.size(0), self.pred_len, self.dataset.num_features]
         ).to(self.device)
-        dec_inp_label = batch_x[:, -self.label_len:, :].to(self.device)
+        dec_inp_label = batch_x[:, :, :].to(self.device)
 
         dec_inp = torch.cat([dec_inp_label, dec_inp_pred], dim=1)
         dec_inp_date_enc = torch.cat(
-            [batch_x_date_enc[:, -self.label_len:, :], batch_y_date_enc], dim=1
+            [batch_x_date_enc[:, :, :], batch_y_date_enc], dim=1
         )
         outputs = self.model(batch_x, batch_x_date_enc,
                              dec_inp, dec_inp_date_enc)
@@ -111,7 +113,7 @@ class TimesNetExperiment(Experiment):
 
 
 def main():
-    exp = TimesNetExperiment(dataset_type="ExchangeRate", windows=96)
+    exp = MICNExperiment(dataset_type="ExchangeRate", windows=96)
 
     exp.run()
 

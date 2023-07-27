@@ -4,6 +4,8 @@ import os
 import random
 import time
 import hashlib
+from torch.cuda.amp import autocast, GradScaler
+
 ####
 from typing import Dict, List, Type, Union
 import numpy as np
@@ -20,7 +22,7 @@ from torch_timeseries.datasets.dataloader import (
     DDPChunkSequenceTimefeatureDataLoader,
 )
 from torch_timeseries.datasets.wrapper import MultiStepTimeFeatureSet
-from torch_timeseries.nn.Informer import Informer
+from torch_timeseries.models.Informer import Informer
 from torch.nn import MSELoss, L1Loss
 from omegaconf import OmegaConf
 
@@ -55,7 +57,7 @@ class ResultRelatedSettings:
 
     patience: int = 5
     max_grad_norm: float = 5.0
-
+    invtrans_loss: bool = False
 
 @dataclass
 class Settings(ResultRelatedSettings):
@@ -348,6 +350,8 @@ class Experiment(Settings):
 
     def reproducible(self, seed):
         # for reproducibility
+        # torch.set_default_dtype(torch.float32)
+        print("torch.get_default_dtype()", torch.get_default_dtype())
         torch.set_default_tensor_type(torch.FloatTensor)
         torch.manual_seed(seed)
         os.environ["PYTHONHASHSEED"] = str(seed)
@@ -448,11 +452,18 @@ class Experiment(Settings):
             ) in enumerate(self.train_loader):
                 
                 self.model_optim.zero_grad()
-
                 pred, true = self._process_one_batch(
                     batch_x, batch_y, batch_x_date_enc, batch_y_date_enc
                 )
 
+                if self.invtrans_loss:
+                    pred = self.scaler.inverse_transform(pred)
+                    batch_y = self.scaler.inverse_transform(batch_y)
+                else:
+                    pred = pred
+                    batch_y = batch_y
+
+                
                 
                 loss = self.loss_func(pred, true)
                 loss.backward()

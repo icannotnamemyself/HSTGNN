@@ -47,16 +47,11 @@ class CrossformerExperiment(Experiment):
         )
         self.model = self.model.to(self.device)
 
-    def _process_one_batch(self, batch_x, batch_y, batch_x_date_enc, batch_y_date_enc, inverse = False):
+    def _process_one_batch(self, batch_x, batch_y, batch_x_date_enc, batch_y_date_enc):
         batch_x = batch_x.float().to(self.device)
         batch_y = batch_y.float().to(self.device)
 
         outputs = self.model(batch_x)
-
-        if inverse:
-            outputs = self.scaler.inverse_transform(outputs)
-            batch_y = self.scaler.inverse_transform(batch_y)
-
         return outputs.squeeze(1), batch_y.squeeze(1)
 
 

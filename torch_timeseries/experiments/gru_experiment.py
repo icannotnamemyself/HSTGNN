@@ -56,7 +56,6 @@ class GRUExperiment(Experiment):
     hidden_size: int = 128
     dropout: float = 0.1
     num_layers: float = 2
-    invtrans_loss: bool = False
 
     def _init_model(self):
         self.model = GRU(
@@ -75,14 +74,7 @@ class GRUExperiment(Experiment):
         batch_y = batch_y.to(self.device)
 
         outputs = self.model(batch_x)  # (B, N) or (B, out_len, N)
-        if self.invtrans_loss:
-            preds = self.scaler.inverse_transform(outputs)
-            batch_y = self.scaler.inverse_transform(batch_y)
-        else:
-            preds = outputs
-            batch_y = batch_y
-
-        return preds.squeeze(1), batch_y.squeeze(1)
+        return outputs.squeeze(1), batch_y.squeeze(1)
 
 
 def main():
