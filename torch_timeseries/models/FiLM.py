@@ -5,7 +5,6 @@ import numpy as np
 from scipy import signal
 from scipy import special as ss
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def transition(N):
@@ -18,7 +17,7 @@ def transition(N):
 
 
 class HiPPO_LegT(nn.Module):
-    def __init__(self, N, dt=1.0, discretization='bilinear'):
+    def __init__(self, N,device, dt=1.0, discretization='bilinear'):
         """
         N: the order of the HiPPO projection
         dt: discretization step size - should be roughly inverse to the length of the sequence
@@ -31,19 +30,19 @@ class HiPPO_LegT(nn.Module):
         A, B, _, _, _ = signal.cont2discrete((A, B, C, D), dt=dt, method=discretization)
 
         B = B.squeeze(-1)
-
+        self.device = device
         self.register_buffer('A', torch.Tensor(A).to(device))
-        self.register_buffer('B', torch.Tensor(B).to(device))
+        self.register_buffer('B',torch.Tensor(B).to(device))
         vals = np.arange(0.0, 1.0, dt)
         self.register_buffer('eval_matrix', torch.Tensor(
-            ss.eval_legendre(np.arange(N)[:, None], 1 - 2 * vals).T).to(device))
+            ss.eval_legendre(np.arange(N)[:, None], 1 - 2 * vals).T))
 
     def forward(self, inputs):
         """
         inputs : (length, ...)
         output : (length, ..., N) where N is the order of the HiPPO projection
         """
-        c = torch.zeros(inputs.shape[:-1] + tuple([self.N])).to(device)
+        c = torch.zeros(inputs.shape[:-1] + tuple([self.N])).to(self.device)
         cs = []
         for f in inputs.permute([-1, 0, 1]):
             f = f.unsqueeze(-1)
@@ -92,7 +91,7 @@ class FiLM(nn.Module):
     """
     Paper link: https://arxiv.org/abs/2205.08897
     """
-    def __init__(self,seq_len,pred_len,enc_in,c_out,d_model,dropout=0.05,num_class=0, task_name="long_term_forecast"):
+    def __init__(self,seq_len,pred_len,enc_in,c_out,d_model, device="cuda:0",dropout=0.05,num_class=0, task_name="long_term_forecast"):
         super(FiLM, self).__init__()
         self.task_name = task_name
         # self.modes = modes
@@ -109,7 +108,7 @@ class FiLM(nn.Module):
         self.window_size = [256]
         ratio = 0.5
         self.legts = nn.ModuleList(
-            [HiPPO_LegT(N=n, dt=1. / self.pred_len / i) for n in self.window_size for i in self.multiscale])
+            [HiPPO_LegT(N=n, dt=1. / self.pred_len / i,device=device) for n in self.window_size for i in self.multiscale])
         self.spec_conv_1 = nn.ModuleList([SpectralConv1d(in_channels=n, out_channels=n,
                                                          seq_len=min(self.pred_len, self.seq_len),
                                                          ratio=ratio) for n in

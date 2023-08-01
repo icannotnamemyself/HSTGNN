@@ -1,4 +1,5 @@
 import datetime
+from enum import Enum
 import json
 import os
 import random
@@ -39,6 +40,14 @@ import json
 import codecs
 
 
+
+class Task(Enum):
+    SingleStepForecast : str = "single_step_forecast"
+    MultiStepForecast : str = "multi_steps_forecast"
+    Imputation : str = "imputation"
+    Classification : str = "classifation"
+    AbnomalyDetection : str = "abnormaly_detection"
+    
 
 @dataclass
 class ResultRelatedSettings:
@@ -137,19 +146,27 @@ class Experiment(Settings):
         loss_func_map = {"mse": MSELoss, "l1": L1Loss}
         self.loss_func = loss_func_map[self.loss_func_type]()
 
-    def _init_metrics(self):
-        self.metrics = MetricCollection(
-            metrics={
-                "r2": R2(self.dataset.num_features, multioutput="uniform_average"),
-                "r2_weighted": R2(
-                    self.dataset.num_features, multioutput="variance_weighted"
-                ),
-                "mse": MeanSquaredError(),
-                "corr": Corr(),
-                "mae": MeanAbsoluteError(),
-            }
-        )
-        
+    def _init_metrics(self, task_name):
+        if task_name == Task.SingleStepForecast:
+            self.metrics = MetricCollection(
+                metrics={
+                    "r2": R2(self.dataset.num_features, multioutput="uniform_average"),
+                    "r2_weighted": R2(
+                        self.dataset.num_features, multioutput="variance_weighted"
+                    ),
+                    "mse": MeanSquaredError(),
+                    "corr": Corr(),
+                    "mae": MeanAbsoluteError(),
+                }
+            )
+        elif task_name == Task.MultiStepForecast:
+            self.metrics = MetricCollection(
+                metrics={
+                    "mse": MeanSquaredError(),
+                    "mae": MeanAbsoluteError(),
+                }
+            )
+
         self.metrics.to(self.device)
 
 
@@ -245,12 +262,12 @@ class Experiment(Settings):
     def _init_model(self):
         self.model = self._parse_type(self.model_type)().to(self.device)
 
-    def _setup(self):
+    def _setup(self, task_name=Task.SingleStepForecast):
         # init data loader
         self._init_data_loader()
 
         # init metrics
-        self._init_metrics()
+        self._init_metrics(task_name)
 
         # init loss function based on given loss func type
         self._init_loss_func()
@@ -388,31 +405,18 @@ class Experiment(Settings):
             # batch_y_date_enc:  (B, T, Steps)
             
         # outputs:
-            # pred: 
+            # pred: (B, O, N)
             # label:  (B,O,N)
         raise NotImplementedError()
     
     
+    
+    
     def _test(self) -> Dict[str, float]:
-        self.model.eval()
-        self.metrics.reset()
         print("Testing .... ")
-        with tqdm(total=self.test_steps) as progress_bar:
-            for (
-                batch_x,
-                batch_y,
-                batch_x_date_enc,
-                batch_y_date_enc,
-            ) in self.test_loader:
-                preds, truths = self._process_one_batch(
-                    batch_x, batch_y, batch_x_date_enc, batch_y_date_enc
-                )
-                self.metrics.update(preds, truths)
-
-                progress_bar.update(batch_x.shape[0])
-        test_result = {
-            name: float(metric.compute()) for name, metric in self.metrics.items()
-        }
+        
+        test_result = self.__evalutate_single_step(self.test_loader)
+        
         if self._use_wandb():
             for name, metric_value in test_result.items():
                 wandb.run.summary["test_" + name] = metric_value
@@ -420,38 +424,38 @@ class Experiment(Settings):
         self._run_print(f"test_results: {test_result}")
         return test_result
 
-    def _evaluate(self):
+    def __evalutate_single_step(self, dataloader:DataLoader):
         self.model.eval()
         self.metrics.reset()
 
         # y_truths = []
         # y_preds = []
-
-        print("Evaluating .... ")
-        with tqdm(total=self.val_steps) as progress_bar:
-            for batch_x, batch_y, batch_x_date_enc, batch_y_date_enc in self.val_loader:
+        with tqdm(total=len(dataloader)) as progress_bar:
+            for batch_x, batch_y, batch_x_date_enc, batch_y_date_enc in dataloader:
+                batch_size = batch_x.size(0)
                 preds, truths = self._process_one_batch(
                     batch_x, batch_y, batch_x_date_enc, batch_y_date_enc
                 )
-                self.metrics.update(preds, truths)
-
-                # y_truths.append(truths.detach().cpu().numpy())
-                # y_preds.append(preds.detach().cpu().numpy())
-
+                self.metrics.update(preds.view(batch_size, -1), truths.view(batch_size, -1))
                 progress_bar.update(batch_x.shape[0])
 
-        # y_truths = np.concatenate(y_truths, axis=0)
-        # y_preds = np.concatenate(y_preds, axis=0)
-
-        val_result = {
+        result = {
             name: float(metric.compute()) for name, metric in self.metrics.items()
         }
+        
         # print(f"wjn corr: {compute_corr(y_truths, y_preds)}")
         # print(f"wjn r2: {compute_r2(y_truths, y_preds, aggr_mode='uniform_average')}")
         # print(
         #     f"wjn r2 weighted: {compute_r2(y_truths, y_preds, aggr_mode='variance_weighted')}"
         # )
         # compute_r2
+        return result
+
+
+    def _evaluate(self):
+        print("Evaluating .... ")
+        val_result = self.__evalutate_single_step(self.val_loader)
+
         if self._use_wandb():
             for name, metric_value in val_result.items():
                 wandb.run.summary["val_" + name] = metric_value
@@ -480,8 +484,6 @@ class Experiment(Settings):
                 else:
                     pred = pred
                     batch_y = batch_y
-
-                
                 
                 loss = self.loss_func(pred, true)
                 loss.backward()
@@ -531,6 +533,16 @@ class Experiment(Settings):
        
     def _load_best_model(self):
         self.model.load_state_dict(torch.load(self.best_checkpoint_filepath, map_location=self.device))
+
+
+    def single_step_forecast(self, seed=42) -> Dict[str, float]:
+        self._setup_run(seed)
+        if self._check_run_exist(seed):
+            self._resume_run(seed)
+
+        self.experiment_label = f"{self.model_type}-w{self.windows}-h{self.horizon}"
+        
+        
 
     def run(self, seed=42) -> Dict[str, float]:
         self._setup_run(seed)

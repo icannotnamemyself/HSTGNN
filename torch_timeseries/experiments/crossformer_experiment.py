@@ -52,7 +52,7 @@ class CrossformerExperiment(Experiment):
         batch_y = batch_y.float().to(self.device)
 
         outputs = self.model(batch_x)
-        return outputs.squeeze(1), batch_y.squeeze(1)
+        return outputs, batch_y
 
 
 def main():

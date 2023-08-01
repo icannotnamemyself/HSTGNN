@@ -11,7 +11,6 @@ from torch_timeseries.datasets.dataset import TimeSeriesDataset
 from torch_timeseries.datasets.splitter import SequenceSplitter
 from torch_timeseries.datasets.wrapper import MultiStepTimeFeatureSet
 from torch_timeseries.experiments.experiment import Experiment
-from torch_timeseries.nn.Informer import Informer
 from torch.nn import MSELoss, L1Loss, GRU
 from omegaconf import OmegaConf
 import torch.nn as nn
@@ -70,11 +69,11 @@ class GRUExperiment(Experiment):
 
 
     def _process_one_batch(self, batch_x, batch_y, batch_x_date_enc, batch_y_date_enc):
-        batch_x = batch_x.to(self.device)
-        batch_y = batch_y.to(self.device)
+        batch_x = batch_x.to(self.device).float()
+        batch_y = batch_y.to(self.device).float()
 
         outputs = self.model(batch_x)  # (B, N) or (B, out_len, N)
-        return outputs.squeeze(1), batch_y.squeeze(1)
+        return outputs, batch_y
 
 
 def main():

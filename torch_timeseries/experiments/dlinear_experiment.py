@@ -52,7 +52,7 @@ class DLinearExperiment(Experiment):
         batch_x_date_enc = batch_x_date_enc.to(self.device).float()
         batch_y_date_enc = batch_y_date_enc.to(self.device).float()
         outputs = self.model(batch_x)  # torch.Size([batch_size, output_length, num_nodes])
-        return outputs.squeeze(1), batch_y.squeeze(1)
+        return outputs, batch_y
 
 
 # def main():

@@ -79,7 +79,7 @@ class InformerNotsExperiment(Experiment):
             [batch_x_date_enc[:, -self.label_len :, :], batch_y_date_enc], dim=1
         )
         outputs = self.model(batch_x, batch_x_date_enc, dec_inp, dec_inp_date_enc)
-        return outputs.squeeze(), batch_y.squeeze()
+        return outputs, batch_y
 
 
 def main():
