@@ -7,3 +7,5 @@ from .MICN import MICN
 from .TSMixer import TSMixer
 from .FiLM import FiLM
 from .LightTS import LightTS
+from .LaST import LaST
+from .DeepTIMe import DeepTIMe

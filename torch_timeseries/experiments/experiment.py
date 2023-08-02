@@ -7,7 +7,7 @@ import time
 import hashlib
 from torch.cuda.amp import autocast, GradScaler
 from prettytable import PrettyTable
-
+import sys
 ####
 from typing import Dict, List, Type, Union
 import numpy as np
@@ -100,6 +100,28 @@ class Experiment(Settings):
         project: str,
         name: str,
     ):
+
+        # TODO: add seeds config parameters
+        def convert_dict(dictionary):
+            converted_dict = {}
+            for key, value in dictionary.items():
+                converted_dict[f"config.{key}"] = value
+            return converted_dict
+
+        # check wether this experiment had runned and reported on wandb
+        api = wandb.Api()
+        config_filter = convert_dict(self.result_related_config)
+        runs = api.runs(path=project, filters=config_filter)
+        
+        try:
+            if runs[0].state == "finished" or runs[0].state == "running":
+                print("Experiment already reported, quiting...")
+                self.finished = True
+                return 
+        except:
+            pass
+        
+        
         run = wandb.init(
             project=project,
             name=name,
@@ -169,10 +191,11 @@ class Experiment(Settings):
 
         self.metrics.to(self.device)
 
-
-    def _run_identifier(self, seed) -> str:
+    
+    
+    @property
+    def result_related_config(self):
         ident = asdict(self)
-
         keys_to_remove = [
             "data_path",
             "device",
@@ -183,7 +206,12 @@ class Experiment(Settings):
         for key in keys_to_remove:
             if key in ident:
                 del ident[key]
+        return ident
+
+    def _run_identifier(self, seed) -> str:
+        ident = self.result_related_config
         ident["seed"] = seed
+        
         ident_md5 = hashlib.md5(
             json.dumps(ident, sort_keys=True).encode("utf-8")
         ).hexdigest()
@@ -427,10 +455,18 @@ class Experiment(Settings):
     def __evalutate_single_step(self, dataloader:DataLoader):
         self.model.eval()
         self.metrics.reset()
+        
+        length = 0
+        if dataloader is self.train_loader:
+            length = self.dataloader.train_size
+        elif dataloader is self.val_loader:
+            length = self.dataloader.val_size
+        elif dataloader is self.test_loader:
+            length = self.dataloader.test_size
 
         # y_truths = []
         # y_preds = []
-        with tqdm(total=len(dataloader)) as progress_bar:
+        with tqdm(total=length) as progress_bar:
             for batch_x, batch_y, batch_x_date_enc, batch_y_date_enc in dataloader:
                 batch_size = batch_x.size(0)
                 preds, truths = self._process_one_batch(
@@ -442,7 +478,6 @@ class Experiment(Settings):
         result = {
             name: float(metric.compute()) for name, metric in self.metrics.items()
         }
-        
         # print(f"wjn corr: {compute_corr(y_truths, y_preds)}")
         # print(f"wjn r2: {compute_r2(y_truths, y_preds, aggr_mode='uniform_average')}")
         # print(
@@ -491,7 +526,7 @@ class Experiment(Settings):
                 torch.nn.utils.clip_grad_norm_(
                     self.model.parameters(), self.max_grad_norm
                 )
-                progress_bar.update(self.batch_size)
+                progress_bar.update(batch_x.size(0))
                 progress_bar.set_postfix(
                     loss=loss.item(),
                     lr=self.model_optim.param_groups[0]["lr"],
@@ -545,6 +580,10 @@ class Experiment(Settings):
         
 
     def run(self, seed=42) -> Dict[str, float]:
+        if hasattr(self, "finished") and self.finished is True:
+            print("Experiment finished!!!")
+            return {}
+
         self._setup_run(seed)
         if self._check_run_exist(seed):
             self._resume_run(seed)
@@ -614,8 +653,15 @@ class Experiment(Settings):
             self._save(seed=seed)
 
         return self._test()
-
+    
     def runs(self, seeds: List[int] = [42,233,666,19971203,19980224]):
+        if hasattr(self, "finished") and self.finished is True:
+            print("Experiment finished!!!")
+            return 
+        if self._use_wandb():
+            wandb.config.update({"seeds": seeds})
+
+        
         results = []
         for i, seed in enumerate(seeds):
             self.current_run = i
