@@ -10,7 +10,7 @@ from torch_timeseries.datasets.dataset import TimeSeriesDataset
 from torch_timeseries.datasets.splitter import SequenceSplitter
 from torch_timeseries.datasets.wrapper import MultiStepTimeFeatureSet
 from torch_timeseries.experiments.experiment import Experiment
-from torch_timeseries.models import DLinear
+from torch_timeseries.models import TNTCN
 from torch_timeseries.nn.metric import TrendAcc, R2, Corr
 from torch.nn import MSELoss, L1Loss
 from torchmetrics import MetricCollection, R2Score, MeanSquaredError
@@ -25,17 +25,15 @@ from dataclasses import dataclass, asdict
 
 
 @dataclass
-class DLinearExperiment(Experiment):
-    model_type: str = "DLinear"
-
-    individual : bool = False
+class TNTCNExperiment(Experiment):
+    model_type: str = "TNTCN"
 
     def _init_model(self):
-        self.model = DLinear(
-            seq_len=self.windows,
-            pred_len=self.pred_len,
-            enc_in=self.dataset.num_features,
-            individual=self.individual,
+        self.model = TNTCN(
+            n_nodes=self.dataset.num_features,
+            input_seq_len=self.windows,
+            pred_horizon=self.dataloader.horizon,
+            multi_pred=False,
         )
         self.model = self.model.to(self.device)
 
@@ -50,40 +48,27 @@ class DLinearExperiment(Experiment):
         batch_y = batch_y.to(self.device, dtype=torch.float32)
         batch_x_date_enc = batch_x_date_enc.to(self.device).float()
         batch_y_date_enc = batch_y_date_enc.to(self.device).float()
+        batch_x = batch_x.transpose(1,2)
         outputs = self.model(batch_x)  # torch.Size([batch_size, output_length, num_nodes])
         return outputs, batch_y
 
 
-# def main():
-#     exp = MTGNNExperiment(
-#         dataset_type="ExchangeRate",
-#         data_path="./data",
-#         optm_type="Adam",
-#         batch_size=64,
-#         device="cuda:3",
-#         windows=168,
-#         epochs=1,
-#         lr=0.0003,
-#         horizon=3,
-#         residual_channels=16,
-#         gcn_true=False,
-#         l2_weight_decay=0.0005,
-#         skip_channels=16,
-#         residual_layer=16,
-#         layers=5,
-#         pred_len=1,
-#         subgraph_size=3,
-#         end_channels=16,
-#         seed=42,
-#         scaler_type="StandarScaler",
-#         wandb=False,
-#     )
-#     exp.config_wandb(
-#         "project",
-#         "name"
-#     )
-#     exp.runs()
+def main():
+    exp = TNTCNExperiment(
+        dataset_type="ExchangeRate",
+        data_path="./data",
+        optm_type="Adam",
+        batch_size=64,
+        device="cuda:1",
+        windows=168,
+    )
+    # exp.config_wandb(
+    #     "project",
+    #     "name"
+    # )
+    exp.run()
 
 
-# if __name__ == "__main__":
-#     main()
+
+if __name__ == "__main__":
+    main()

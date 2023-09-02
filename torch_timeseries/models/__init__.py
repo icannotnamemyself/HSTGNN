@@ -9,3 +9,4 @@ from .FiLM import FiLM
 from .LightTS import LightTS
 from .LaST import LaST
 from .DeepTIMe import DeepTIMe
+from .TNTCN import TNTCN

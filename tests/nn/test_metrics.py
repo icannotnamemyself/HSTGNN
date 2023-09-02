@@ -8,7 +8,7 @@ import numpy as np
 
 
 def test_corr():
-    corr = Corr()
+    corr = Corr(save_on_gpu=True)
     preds = torch.randn(3, 64, 128, 3)
     trues = torch.randn(3, 64, 128, 3)
     for i in range(3):
@@ -19,6 +19,19 @@ def test_corr():
     corr1 = compute_corr(preds.reshape(-1, 128, 3).detach().cpu().numpy(), trues.reshape(-1, 128, 3).detach().cpu().numpy())
 
     assert round(float(result), 4) == round(float(corr1), 4)
+
+    corr = Corr(save_on_gpu=False)
+    preds = torch.randn(3, 64, 128, 3)
+    trues = torch.randn(3, 64, 128, 3)
+    for i in range(3):
+        pred = preds[i, :, :, :]
+        true = trues[i, :, :, :]
+        corr.update(pred, true)
+    result = corr.compute()
+    corr1 = compute_corr(preds.reshape(-1, 128, 3).detach().cpu().numpy(), trues.reshape(-1, 128, 3).detach().cpu().numpy())
+
+    assert round(float(result), 4) == round(float(corr1), 4)
+
 
     corr = Corr()
     preds = torch.randn(3, 64, 128)

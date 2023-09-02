@@ -26,7 +26,6 @@ from torch_timeseries.datasets.dataloader import (
 from torch_timeseries.datasets.wrapper import MultiStepTimeFeatureSet
 from torch_timeseries.models.Informer import Informer
 from torch.nn import MSELoss, L1Loss
-from omegaconf import OmegaConf
 
 from torch.optim import Optimizer, Adam
 from torch.utils.data import Dataset, DataLoader, RandomSampler, Subset
@@ -78,8 +77,6 @@ class Settings(ResultRelatedSettings):
     experiment_label: str = str(int(time.time()))
 
 
-
-
 def count_parameters(model, print_fun=print):
     table = PrettyTable(["Modules", "Parameters"])
     total_params = 0
@@ -115,7 +112,7 @@ class Experiment(Settings):
         
         try:
             if runs[0].state == "finished" or runs[0].state == "running":
-                print("Experiment already reported, quiting...")
+                print(f"{self.model_type} {self.dataset_type} w{self.windows} w{self.horizon}  Experiment already reported, quiting...")
                 self.finished = True
                 return 
         except:
@@ -702,9 +699,6 @@ def main():
         pred_len=3,
         scaler_type="MaxAbsScaler",
     )
-
-    # conf = OmegaConf.structured(exp)
-    # print(OmegaConf.to_yaml(conf))
 
     exp._run_identifier()
     # exp = Experiment(settings)

@@ -12,7 +12,6 @@ from torch_timeseries.datasets.splitter import SequenceSplitter
 from torch_timeseries.datasets.wrapper import MultiStepTimeFeatureSet
 from torch_timeseries.experiments.experiment import Experiment
 from torch.nn import MSELoss, L1Loss, GRU
-from omegaconf import OmegaConf
 import torch.nn as nn
 from torch.optim import Optimizer, Adam
 

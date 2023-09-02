@@ -21,6 +21,8 @@ def main():
                 )
             exp.config_wandb("BiSTGNN", "baseline")
             exp.runs()
+            
+            
             wandb.finish()
 
 

@@ -5,7 +5,7 @@ import torch
 from torch import Tensor, tensor
 
 from torchmetrics.metric import Metric
-from torchmetrics import MetricCollection, R2Score, MeanSquaredError
+from torchmetrics import MetricCollection, R2Score, MeanSquaredError, SpearmanCorrCoef
 from torchmetrics.functional.regression.r2 import _r2_score_compute, _r2_score_update
 import numpy as np
 
@@ -71,7 +71,7 @@ def compute_corr(y_true, y_pred):
 
 class TrendAcc(Metric):
     """Metric for single step forcasting"""
-
+    compute_by_all : bool = False
     def __init__(
         self,
         **kwargs: Any,
@@ -97,6 +97,7 @@ class TrendAcc(Metric):
 
 class R2(R2Score):
     """Metric for multi step forcasting"""
+    compute_by_all : bool = False
 
     def __init__(self, num_outputs, num_nodes=1, adjusted: int = 0, multioutput: str = "uniform_average") -> None:
         super().__init__(num_outputs, adjusted, multioutput)
@@ -142,16 +143,30 @@ class R2(R2Score):
 
 class Corr(Metric):
     """correlation for multivariate timeseries, Corr compute correlation for every columns/nodes and output the averaged result"""
-
-    def __init__(self):
+    compute_by_all : bool = True
+    def __init__(self, save_on_gpu=False):
         super().__init__()
-        self.add_state("y_pred", default=torch.Tensor(), dist_reduce_fx="cat")
-        self.add_state("y_true", default=torch.Tensor(), dist_reduce_fx="cat")
+        self.save_on_gpu = save_on_gpu
+        if save_on_gpu == True:
+            self.add_state("y_pred", default=torch.Tensor(), dist_reduce_fx="cat")
+            self.add_state("y_true", default=torch.Tensor(), dist_reduce_fx="cat")
+        else:
+            self.y_pred = [] 
+            self.y_true = [] 
+
 
     def update(self, y_pred: torch.Tensor, y_true: torch.Tensor):
-        self.y_pred = torch.cat([self.y_pred, y_pred], dim=0)
-        self.y_true = torch.cat([self.y_true, y_true], dim=0)
+        if self.save_on_gpu == True:
+            self.y_pred = torch.cat([self.y_pred, y_pred], dim=0)
+            self.y_true = torch.cat([self.y_true, y_true], dim=0)
+        else:
+            self.y_pred.append(y_pred.detach().cpu().numpy())
+            self.y_true.append(y_true.detach().cpu().numpy())
+
         
     def compute(self):
-        return compute_corr(self.y_pred, self.y_true)
+        if self.save_on_gpu == True:
+            return compute_corr(self.y_pred, self.y_true)
+        else:
+            return compute_corr(np.concatenate(self.y_pred, axis=0), np.concatenate(self.y_true, axis=0))
 
