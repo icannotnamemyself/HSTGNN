@@ -15,10 +15,11 @@ class Config:
     patience: int = 5
 
 
-def run(exp: Type[Experiment], config: Config, project:str, name:str, ):
+def run(exp_type: Type[Experiment], config: Config, project:str="", name:str=""):
+    
     for dataset_type, windows in config.datasets:
         for horizon in config.horizons:
-            exp = exp(
+            exp = exp_type(
                 epochs=config.epochs,
                 patience=config.patience,
                 windows=windows,
@@ -26,6 +27,10 @@ def run(exp: Type[Experiment], config: Config, project:str, name:str, ):
                 dataset_type=dataset_type,
                 device=config.device,
             )
-            exp.config_wandb("BiSTGNN", "baseline")
+            if project != "" and name != "":
+                exp.config_wandb(project, name)
             exp.runs()
             wandb.finish()
+
+
+

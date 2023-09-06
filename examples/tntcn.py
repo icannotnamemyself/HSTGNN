@@ -1,7 +1,6 @@
 import os
 from torch_timeseries.utils.run import run, Config
-
-from torch_timeseries.experiments.gru_experiment import GRUExperiment
+from torch_timeseries.experiments.tntcn_experiment import TNTCNExperiment
 
 
 os.environ['CUDA_DEVICE_ORDER'] = "PCI_BUS_ID"
@@ -12,9 +11,7 @@ def main():
     config = Config(
         device="cuda:1",
         horizons=horizons,
-        epochs=10,
         datasets=[
-            ("ExchangeRate", 94),
             ("ETTm1", 384),
             ("ETTm2", 384),
             ("ETTh1", 384),
@@ -24,8 +21,7 @@ def main():
         ]
     )
 
-    # run(TNTCNExperiment, config, "BiSTGNN", "baseline")
-    run(GRUExperiment, config, "", "")
+    run(TNTCNExperiment, config, "BiSTGNN", "BiSTGNN")
 
 if __name__ == "__main__":
     main()

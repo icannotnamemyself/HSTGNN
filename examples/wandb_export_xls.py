@@ -38,7 +38,6 @@ for run in runs:
             continue
 index = pd.MultiIndex.from_tuples(all_data.keys(), names=['dataset', 'horizon', 'metric', 'model_type'])
 
-import pdb;pdb.set_trace()
 
 df = pd.DataFrame(all_data.values(), index=index)
 """
