@@ -10,30 +10,44 @@ from torch_geometric.nn import FAConv
 
 
 class TNTCN(nn.Module):
-    def __init__(self, n_nodes, input_seq_len,remain_prob=1.0,gcn_type='fagcn',gcn_eps=0.1,casting_dim=32,gcn_channel=32, gc_layers=2, edge_mode=1, aggr_mode='add', dropout=0.3,act='elu',tcn_channel=16,pred_horizon=3,multi_pred=False,no_time=False,no_space=False, tcn_layers=3,one_node_forecast=False,dilated_factor=2,
+    def __init__(self, n_nodes, input_seq_len,remain_prob=1.0,graph_build_type='weighted_random_clip',output_module='tcn',gcn_type='fagcn',gcn_eps=0.1,casting_dim=32,gcn_channel=32, gc_layers=2, edge_mode=1, aggr_mode='add', dropout=0.3,act='elu',tcn_channel=16,pred_horizon=3,multi_pred=False,no_time=False,no_space=False, tcn_layers=3,one_node_forecast=False,dilated_factor=2,
                 without_gc=False):
         super().__init__()
         self.act = activation_resolver.make(act)
 
+        self.graph_build_type = graph_build_type
         self.without_gc = without_gc
         if not without_gc:
-            self.tn_module = TNModule(n_nodes, input_seq_len,remain_prob,gcn_type,gcn_eps,casting_dim,gcn_channel, gc_layers, edge_mode, aggr_mode, dropout,act,tcn_channel,pred_horizon,multi_pred,no_time ,no_space, dilated_factor, tcn_layers,one_node_forecast)
+            self.tn_module = TNModule(n_nodes, input_seq_len,remain_prob,gcn_type,gcn_eps,casting_dim,gcn_channel, gc_layers, edge_mode, aggr_mode, dropout,act,tcn_channel,pred_horizon,multi_pred,no_time ,no_space, dilated_factor, tcn_layers,one_node_forecast,graph_build_type=graph_build_type)
 
         out_channels = 1
         if not without_gc:
             out_channels = 3
             if no_time or no_space:
                 out_channels = 2
-        self.channel_layer = nn.Conv2d(out_channels, tcn_channel, (1, 1))
         
         out_seq_len = pred_horizon if multi_pred else 1
-        self.tcn = MyTCN(
-            input_seq_len, tcn_channel, tcn_channel,
-            out_seq_len=out_seq_len, num_layers=tcn_layers,
-            dilated_factor=dilated_factor
-        )
-
-        self.end_layer = nn.Conv2d(tcn_channel, 1, (1, 1))
+        
+        if output_module == 'tcn':
+            self.output_module = TCNOuputLayer(
+                input_seq_len=input_seq_len,
+                out_seq_len=out_seq_len,
+                tcn_layers=tcn_layers,
+                dilated_factor=dilated_factor,
+                in_channel=out_channels,
+                tcn_channel=tcn_channel,
+                act=act)
+        elif output_module == 'mlp':
+            self.output_module = MLPOuputLayer(
+                input_seq_len=input_seq_len,
+                out_seq_len=out_seq_len,
+                in_channel=out_channels,
+                hidden_dim=tcn_channel,
+                act=act
+            )
+        
+        # self.channel_layer = nn.Conv2d(out_channels, tcn_channel, (1, 1))
+        # self.end_layer = nn.Conv2d(tcn_channel, 1, (1, 1))
 
         self.has_node_layer = False
         if one_node_forecast:
@@ -47,17 +61,52 @@ class TNTCN(nn.Module):
         else:
             output = x
             # output = self.gc_replace(x)
-            output = output.unsqueeze(1)
-        output = self.channel_layer(output)
-        output = self.act(self.tcn(output))  # (B, C, N, out_len)
-        output = self.end_layer(output).squeeze(1).transpose(1, 2)  # (B, out_len, N)
+            output = output.unsqueeze(1) 
+            
+        # output: (B, 2 or 3, N, T)
+        output = self.output_module(output) # (B, out_len, N)
 
         if self.has_node_layer:
             output = self.node_layer(output)
         output = output.squeeze(1)  # (B, N) or (B, out_len, N)
         return output
 
+class TCNOuputLayer(nn.Module):
+    def __init__(self,input_seq_len,out_seq_len,tcn_layers,dilated_factor,in_channel,tcn_channel,act='elu') -> None:
+        super().__init__()
+        self.channel_layer = nn.Conv2d(in_channel, tcn_channel, (1, 1))
+        self.tcn =MyTCN(
+                    input_seq_len, tcn_channel, tcn_channel,
+                    out_seq_len=out_seq_len, num_layers=tcn_layers,
+                    dilated_factor=dilated_factor
+                )
+        self.end_layer = nn.Conv2d(tcn_channel, 1, (1, 1))
+        self.act = activation_resolver.make(act)
+        
+    def forward(self, x):
+        output = self.channel_layer(x)
+        output = self.act(self.tcn(output))  # (B, C, N, out_len)
+        output = self.end_layer(output).squeeze(1).transpose(1, 2)  # (B, out_len, N)
+        return output
+        
+        
 
+class MLPOuputLayer(nn.Module):
+    def __init__(self,input_seq_len,out_seq_len,in_channel,hidden_dim,act='elu') -> None:
+        super().__init__()
+        self.mlp1 = nn.Linear(input_seq_len*in_channel, hidden_dim) 
+        self.act = activation_resolver.make(act)
+        self.mlp2 = nn.Linear(hidden_dim, out_seq_len) 
+        
+    def forward(self, x):
+        x = x.reshape(x.size(0),x.size(2),-1) # (B, C, N, T) -> (B, N, TxC)
+        
+        output = self.act(self.mlp1(x)) # (B, N, H)
+        output = self.mlp2(output) # (B, N,out_seq_len)
+        
+        output = output.transpose(1, 2) # (B,out_seq_len, N)
+        return output
+        
 class TNMLP(nn.Module):
     def __init__(self, n_nodes, input_seq_len,remain_prob,gcn_type,gcn_eps,casting_dim,gcn_channel, gc_layers, edge_mode, aggr_mode, dropout,act,tcn_channel,pred_horizon,multi_pred,no_time ,no_space, dilated_factor, tcn_layers,one_node_forecast
                  ,without_gc,
@@ -90,14 +139,20 @@ class TNMLP(nn.Module):
 
 
 class TNModule(nn.Module):
-    def __init__(self, n_nodes, input_seq_len,remain_prob,gcn_type,gcn_eps,casting_dim,gcn_channel, gc_layers, edge_mode, aggr_mode, dropout,act,tcn_channel,pred_horizon,multi_pred,no_time ,no_space, dilated_factor, tcn_layers,one_node_forecast ):
+    def __init__(self, n_nodes, input_seq_len,remain_prob,gcn_type,gcn_eps,casting_dim,gcn_channel, gc_layers, edge_mode, aggr_mode, dropout,act,tcn_channel,pred_horizon,multi_pred,no_time ,no_space, dilated_factor, tcn_layers,one_node_forecast,graph_build_type='weighted_random_clip' ):
+        # graph_build_type: weighted_random_clip full_connected
+        
         super().__init__()
+        
+        
 
         self.n_nodes = n_nodes
         self.seq_len = input_seq_len
+        
+        self.graph_build_type = graph_build_type
 
         def get_edge_index():
-            tmp = torch.zeros((self.n_nodes + self.seq_len, self.n_nodes + self.seq_len))
+            tmp = torch.zeros((self.n_nodes + self.seq_len, self.n_nodes + self.seq_len)) # (NxT , NxT)
             tmp[:self.n_nodes, self.n_nodes:] = 1
             tmp[self.n_nodes:, :self.n_nodes] = 1
             return torch.nonzero(tmp).T
@@ -140,29 +195,40 @@ class TNModule(nn.Module):
         # self.channel_layer = nn.Conv2d(1 if without_gc else 3, gcn_channel, (1, 1))
     
     def build_graph_for_pyg(self, x, remain_mask=None):
+        # input: B N T
+        # output: 
+            # edge_index: B , 2, 2*(N+T)
+            # edge_attr: B , 2*(N+T)
         batch_size = x.shape[0]
         batch_indices = self.edge_index.expand(batch_size, -1, -1).to(x.device)
         # indices = torch.nonzero(adj).T  # (2, n_edges)
         batch_values = torch.cat((
             x.reshape(batch_size, -1), x.transpose(1, 2).reshape(batch_size, -1)
-        ), dim=-1)  # (batch_size, n_edges)
+        ), dim=-1)  # (batch_size, n_edges)  # (B, 2(NxT))
 
         if self.remain_prob < 1.0:
             if self.training and remain_mask is not None:
                 batch_indices = batch_indices[:, :, remain_mask]
                 batch_values = batch_values[:, remain_mask]
         
-        elif self.gcn_type == 'fagcn':
+        elif self.graph_build_type == 'weighted_random_clip':
             sampler = torch.tanh(torch.abs(batch_values))  # (B, n_edges)
             sampler = torch.bernoulli(sampler)
             sampler = sampler == 1
             res = list()
             for bi in range(batch_size):
-                ei = batch_indices[bi]
+                ei = batch_indices[bi]# (第i行 第j列) 有边
                 sample_indx = sampler[bi]
                 res.append(torch.stack((ei[0, sample_indx], ei[1, sample_indx])))
             batch_indices = res
 
+        elif self.graph_build_type == 'full_connected':
+            batch_indices = batch_indices
+            
+        else:
+            raise NotImplementedError("Graph constructor not implemented!!!")
+        
+        
         return batch_indices, batch_values
 
     def forward(self, x, edge_mask=None):
@@ -175,7 +241,7 @@ class TNModule(nn.Module):
         edge_index, edge_attr = self.build_graph_for_pyg(x, edge_mask)
         node_embs = torch.cat((feature_nodes, time_nodes), dim=1)  # (B, N + T, H)
 
-        output = self.gcn(node_embs, edge_attr, edge_index)
+        output = self.gcn(node_embs , edge_index ,edge_attr=edge_attr) # (B, N + T, H)
         n_output = output[:, :self.n_nodes, :]  # (B, N, C_out)
         t_output = output[:, self.n_nodes:, :]  # (B, T, C_out)
         
@@ -336,7 +402,10 @@ class MyFAGCN(MyGraphSage):
         return FAConv(in_channels, dropout=dropout, eps=self.eps, **kwargs)
         # return FAConv(in_channels, out_channels, **kwargs)
     
-    def forward(self, x, edge_attr, edge_index):
+    def forward(self, x, edge_index, edge_attr=None):
+        # x: B * (N+T) * C
+        # edge_index: B,2,2*(N*T)
+        # edge_attr: B*E or B * (N * T )
         if len(edge_attr.shape) == 2:
             edge_attr = edge_attr.unsqueeze(-1)  # (B, E) -> (B, E, 1)
         origin = x

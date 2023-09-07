@@ -29,6 +29,7 @@ class ETTm2(TimeSeriesDataset):
     def _load(self) -> np.ndarray:
         self.file_path = os.path.join(self.dir, 'ETTm2.csv')
         self.df = pd.read_csv(self.file_path,parse_dates=[0])
+        self.dates = pd.DataFrame({'date':self.df.date})
         self.data = self.df.iloc[:, 1:].to_numpy()
         return self.data
     

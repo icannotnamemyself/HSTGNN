@@ -33,5 +33,6 @@ class Dummy(TimeSeriesDataset):
         data = np.random.rand(len(dates), 2)
         # 将时间列和数据矩阵拼接成一个numpy数组
         self.df = pd.DataFrame({'date': dates, 'data1': data[:, 0],'data2': data[:, 1]})
+        self.dates = pd.DataFrame({'date':self.df.date})
         self.data = self.df.drop('date', axis=1).values        
         return self.data

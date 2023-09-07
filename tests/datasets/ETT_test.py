@@ -1,7 +1,9 @@
 
 import pytest
 import os
+from torch_timeseries.data.scaler import StandarScaler
 from torch_timeseries.datasets import ETTh1, ETTh2, ETTm1, ETTm2
+from torch_timeseries.datasets.dataloader import ChunkSequenceTimefeatureDataLoader
 
 def test_etth1():
     etth1 = ETTh1(root='./data')
@@ -25,3 +27,33 @@ def test_ettm2():
     ett = ETTm2(root='./data')
     assert os.path.exists("./data/ETTm2/ETTm2.csv") is True
     assert ett.data.shape[0] == ett.length and ett.data.shape[1] == ett.num_features
+
+def test_dataloader():
+    dataloader = ChunkSequenceTimefeatureDataLoader(
+        ETTm1(),
+        scaler=StandarScaler()
+    )
+    for  _ in dataloader.train_loader:
+        continue
+    
+    
+    dataloader = ChunkSequenceTimefeatureDataLoader(
+        ETTm2(),
+        scaler=StandarScaler()
+    )
+    for  _ in dataloader.train_loader:
+        continue
+    
+    dataloader = ChunkSequenceTimefeatureDataLoader(
+        ETTh1(),
+        scaler=StandarScaler()
+    )
+    for  _ in dataloader.train_loader:
+        continue
+    
+    dataloader = ChunkSequenceTimefeatureDataLoader(
+        ETTh2(),
+        scaler=StandarScaler()
+    )
+    for  _ in dataloader.train_loader:
+        continue

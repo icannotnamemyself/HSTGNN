@@ -3,6 +3,29 @@ import pytest
 import os
 from torch_timeseries.datasets import Electricity , ILI, Weather
 from torch_timeseries.datasets.wrapper import SingleStepWrapper, MultiStepWrapper
+from torch_timeseries.data.scaler import StandarScaler
+from torch_timeseries.datasets.dataloader import ChunkSequenceTimefeatureDataLoader
+def test_dataloader():
+    dataloader = ChunkSequenceTimefeatureDataLoader(
+        Electricity(),
+        scaler=StandarScaler()
+    )
+    for  _ in dataloader.train_loader:
+        continue
+    dataloader = ChunkSequenceTimefeatureDataLoader(
+        Weather(),
+        scaler=StandarScaler()
+    )
+    
+    
+    for  _ in dataloader.train_loader:
+        continue
+    dataloader = ChunkSequenceTimefeatureDataLoader(
+        ILI('./data'),
+        scaler=StandarScaler()
+    )
+    for  _ in dataloader.train_loader:
+        continue
 
 def test_exchange_rate():
     dataset = Electricity(root='./data')

@@ -28,5 +28,6 @@ class ExchangeRate(TimeSeriesDataset):
     def _load(self) -> np.ndarray:
         self.file_name = os.path.join(self.dir, 'exchange_rate.csv')
         self.df = pd.read_csv(self.file_name, parse_dates=['date'])
+        self.dates = pd.DataFrame({'date':self.df.date})
         self.data = self.df.drop("date", axis=1).values
         return self.data

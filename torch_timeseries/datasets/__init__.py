@@ -9,6 +9,7 @@ from .ILI import ILI
 from .weather import Weather
 from .ETTm2 import ETTm2
 from .dummy import Dummy
+from .metr_la import METR_LA
 
 # __all__ = [
 #     "Traffic",

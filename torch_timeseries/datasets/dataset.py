@@ -30,7 +30,7 @@ class Dataset(torch.utils.data.Dataset):
     length: int
     freq: Freq
 
-    def __init__(self, root: str, scaler: Scaler = MaxAbsScaler()):
+    def __init__(self, root: str):
         """_summary_
 
         Args:
@@ -57,7 +57,7 @@ StoreTypes = np.ndarray
 
 
 class TimeSeriesDataset(Dataset):
-    def __init__(self, root: str):
+    def __init__(self, root: str='./data'):
         """_summary_
 
         Args:
@@ -72,6 +72,8 @@ class TimeSeriesDataset(Dataset):
         self.download()
         self._process()
         self._load()
+        
+        self.dates: pd.DataFrame
 
     @abstractmethod
     def download(self):
@@ -96,13 +98,19 @@ class TimeSeriesDataset(Dataset):
         raise NotImplementedError
 
 
+class TimeSeriesStaticGraphDataset(TimeSeriesDataset):
+
+    def _load_static_graph(self):
+        raise NotImplementedError()
+
+
 class TimeseriesSubset(torch.utils.data.Subset):
     def __init__(self, dataset: TimeSeriesDataset, indices: Sequence[int]) -> None:
         self.dataset = dataset
         self.indices = indices
         self.data = self.dataset.data[indices]
         self.df = self.dataset.df.iloc[indices]
-
+        self.dates = self.dataset.dates.iloc[indices]
         self.num_features = dataset.num_features
         self.name = dataset.name
         self.length = len(self.indices)

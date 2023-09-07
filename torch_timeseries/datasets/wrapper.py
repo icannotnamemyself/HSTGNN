@@ -29,7 +29,7 @@ class MultiStepTimeFeatureSet(Dataset):
             self.scaler.fit(self.dataset.data)
         self.scaled_data = self.scaler.transform(self.dataset.data)
         self.date_enc_data = time_features(
-            self.dataset.df, self.time_enc, self.freq)
+            self.dataset.dates, self.time_enc, self.freq)
 
 
     def transform(self, values):
