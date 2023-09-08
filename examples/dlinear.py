@@ -2,42 +2,30 @@
 
 # Import the W&B Python Library and log into W&B
 import wandb
+
+from torch_timeseries.utils.run import Config, run
 wandb.login()
 
 from torch_timeseries.experiments.dlinear_experiment import DLinearExperiment
 
-
 def main():
-    datasets = [ "ETTm1", "ETTm2", "ETTh1", "ETTh2"] #"ExchangeRate",
-    horizons = [3, 6, 12, 24]
-    
-    for horizon in horizons:
-        exp = DLinearExperiment(
-            epochs=100,
-            patience=5,
-            windows=90,
-            horizon=horizon,
-            dataset_type="ExchangeRate",
-            device="cuda:4",
-            )
-        exp.config_wandb("BiSTGNN", "baseline")
-        exp.runs()
-        wandb.finish()
+    horizons = [3,6,12,24]
+    config = Config(
+        device="cuda:2",
+        horizons=horizons,
+        datasets=[
+            ("ETTm1", 384),
+            ("ETTm2", 384),
+            ("ETTh1", 384),
+            ("ETTh2", 384),
+            ("ExchangeRate", 96),
+            ("Weather", 168),
+            ("METR_LA", 288),
+            ("PEMS_BAY", 288),
+        ]
+    )
 
-    
-    for dataset in datasets:
-        for horizon in horizons:
-            exp = DLinearExperiment(
-                epochs=100,
-                patience=5,
-                windows=384,
-                horizon=horizon,
-                dataset_type=dataset,
-                device="cuda:4",
-                )
-            exp.config_wandb("BiSTGNN", "baseline")
-            exp.runs()
-            wandb.finish()
+    run(DLinearExperiment, config, "BiSTGNN", "baseline")
 
 
 

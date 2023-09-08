@@ -3,41 +3,29 @@
 # Import the W&B Python Library and log into W&B
 import wandb
 wandb.login()
+from torch_timeseries.utils.run import Config, run
 
 from torch_timeseries.experiments.nlinear_experiment import NLinearExperiment
 
 
 def main():
-    datasets = [ "ETTm1", "ETTm2", "ETTh1", "ETTh2"] #"ExchangeRate",
-    horizons = [3, 6, 12, 24]
-    
-    for horizon in horizons:
-        exp = NLinearExperiment(
-            epochs=100,
-            patience=5,
-            windows=90,
-            horizon=horizon,
-            dataset_type="ExchangeRate",
-            device="cuda:4",
-            )
-        exp.config_wandb("BiSTGNN", "baseline")
-        exp.runs()
-        wandb.finish()
+    horizons = [3,6,12,24]
+    config = Config(
+        device="cuda:2",
+        horizons=horizons,
+        datasets=[
+            ("METR_LA", 288),
+            ("PEMS_BAY", 288),
+            ("ETTm1", 384),
+            ("ETTm2", 384),
+            ("ETTh1", 384),
+            ("ETTh2", 384),
+            ("ExchangeRate", 96),
+            ("Weather", 168),
+        ]
+    )
 
-    
-    for dataset in datasets:
-        for horizon in horizons:
-            exp = NLinearExperiment(
-                epochs=100,
-                patience=5,
-                windows=384,
-                horizon=horizon,
-                dataset_type=dataset,
-                device="cuda:4",
-                )
-            exp.config_wandb("BiSTGNN", "baseline")
-            exp.runs()
-            wandb.finish()
+    run(NLinearExperiment, config, "BiSTGNN", "baseline")
 
 
 

@@ -51,6 +51,8 @@ class TNTCNExperiment(Experiment):
     
     without_gc:bool = False
     
+    n_first : bool= True
+    
     def _init_model(self):
         self.model = TNTCN(
             n_nodes=self.dataset.num_features,
@@ -72,7 +74,8 @@ class TNTCNExperiment(Experiment):
             dropout=self.dropout,
             tcn_channel=self.tcn_channel,
             tcn_layers=self.tcn_layers,
-            dilated_factor=self.dilated_factor
+            dilated_factor=self.dilated_factor,
+            n_first=self.n_first
         )
         self.model = self.model.to(self.device)
 

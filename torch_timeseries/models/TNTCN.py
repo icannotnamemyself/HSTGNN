@@ -6,20 +6,25 @@ import torch.nn.functional as F
 from class_resolver.contrib.torch import activation_resolver
 from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.nn.dense.linear import Linear
-from torch_geometric.nn import FAConv
+from torch_geometric.nn import FAConv,HeteroConv
+from torch_geometric.nn import HeteroConv, GCNConv, SAGEConv, GATConv, Linear
 
 
 class TNTCN(nn.Module):
     def __init__(self, n_nodes, input_seq_len,remain_prob=1.0,graph_build_type='weighted_random_clip',output_module='tcn',gcn_type='fagcn',gcn_eps=0.1,casting_dim=32,gcn_channel=32, gc_layers=2, edge_mode=1, aggr_mode='add', dropout=0.3,act='elu',tcn_channel=16,pred_horizon=3,multi_pred=False,no_time=False,no_space=False, tcn_layers=3,one_node_forecast=False,dilated_factor=2,
-                without_gc=False):
+                without_gc=False,n_first=True):
         super().__init__()
         self.act = activation_resolver.make(act)
 
         self.graph_build_type = graph_build_type
         self.without_gc = without_gc
+        self.n_first = n_first
+        
         if not without_gc:
-            self.tn_module = TNModule(n_nodes, input_seq_len,remain_prob,gcn_type,gcn_eps,casting_dim,gcn_channel, gc_layers, edge_mode, aggr_mode, dropout,act,tcn_channel,pred_horizon,multi_pred,no_time ,no_space, dilated_factor, tcn_layers,one_node_forecast,graph_build_type=graph_build_type)
+            self.tn_module = TNModule(n_nodes, input_seq_len,remain_prob,gcn_type,gcn_eps,casting_dim,gcn_channel, gc_layers, edge_mode, aggr_mode, dropout,act,tcn_channel,pred_horizon,multi_pred,no_time ,no_space, dilated_factor, tcn_layers,one_node_forecast,graph_build_type=graph_build_type,n_first=n_first)
 
+
+        
         out_channels = 1
         if not without_gc:
             out_channels = 3
@@ -70,6 +75,44 @@ class TNTCN(nn.Module):
             output = self.node_layer(output)
         output = output.squeeze(1)  # (B, N) or (B, out_len, N)
         return output
+
+
+# class HeteroFAGCN(torch.nn.Module):
+#     def __init__(self, hidden_channels, out_channels, num_layers=3):
+#         super().__init__()
+
+#         self.convs = torch.nn.ModuleList()
+#         for _ in range(num_layers):
+#             conv = HeteroConv({
+#                 ('s', 'st', 't'): FAConv( hidden_channels, eps=0.1),
+#                 ('t', 'ts', 's'): FAConv(hidden_channels, eps=0.1),
+#             }, aggr='sum')
+#             self.convs.append(conv)
+
+#         self.lin = Linear(hidden_channels, out_channels)
+        
+       
+
+
+class STHeterConv(torch.nn.Module):
+    def __init__(self, hidden_channels, eps, n_first=True):
+        super().__init__()
+
+        self.st_conv = FAConv(hidden_channels, eps=eps)
+        self.ts_conv = FAConv(hidden_channels, eps=eps)
+        
+        self.n_first = n_first
+        
+    def forward(self,x,x0,xnt_edge_index, xtn_edge_index):
+        if self.n_first: # this should be sensable
+            xt = self.st_conv(x, x0,xnt_edge_index)
+            xn = self.ts_conv(x,x0,xtn_edge_index)
+        else: # TODO: mix or direct?
+            xt = self.ts_conv(x, x0,xtn_edge_index)
+            xn = self.st_conv(x, x0,xnt_edge_index)
+        return xt, xn
+    
+
 
 class TCNOuputLayer(nn.Module):
     def __init__(self,input_seq_len,out_seq_len,tcn_layers,dilated_factor,in_channel,tcn_channel,act='elu') -> None:
@@ -139,7 +182,7 @@ class TNMLP(nn.Module):
 
 
 class TNModule(nn.Module):
-    def __init__(self, n_nodes, input_seq_len,remain_prob,gcn_type,gcn_eps,casting_dim,gcn_channel, gc_layers, edge_mode, aggr_mode, dropout,act,tcn_channel,pred_horizon,multi_pred,no_time ,no_space, dilated_factor, tcn_layers,one_node_forecast,graph_build_type='weighted_random_clip' ):
+    def __init__(self, n_nodes, input_seq_len,remain_prob,gcn_type,gcn_eps,casting_dim,gcn_channel, gc_layers, edge_mode, aggr_mode, dropout,act,tcn_channel,pred_horizon,multi_pred,no_time ,no_space, dilated_factor, tcn_layers,one_node_forecast,graph_build_type='weighted_random_clip',n_first=True):
         # graph_build_type: weighted_random_clip full_connected
         
         super().__init__()
@@ -148,6 +191,7 @@ class TNModule(nn.Module):
 
         self.n_nodes = n_nodes
         self.seq_len = input_seq_len
+        self.n_first =n_first
         
         self.graph_build_type = graph_build_type
 
@@ -182,6 +226,12 @@ class TNModule(nn.Module):
                 casting_dim, gcn_channel, gc_layers,
                 act=act, eps=gcn_eps
             )
+        elif gcn_type == 'heterofagcn':
+            self.gcn = HeteroFAGCN(
+                n_nodes,input_seq_len,
+                casting_dim, gcn_channel, gc_layers,
+                act=act, eps=gcn_eps,n_first=self.n_first
+            )
 
         # Rebuild Module
         if not no_time:
@@ -193,7 +243,7 @@ class TNModule(nn.Module):
                 nn.Linear(self.seq_len, self.seq_len)
             )
         # self.channel_layer = nn.Conv2d(1 if without_gc else 3, gcn_channel, (1, 1))
-    
+   
     def build_graph_for_pyg(self, x, remain_mask=None):
         # input: B N T
         # output: 
@@ -228,7 +278,6 @@ class TNModule(nn.Module):
         else:
             raise NotImplementedError("Graph constructor not implemented!!!")
         
-        
         return batch_indices, batch_values
 
     def forward(self, x, edge_mask=None):
@@ -237,6 +286,7 @@ class TNModule(nn.Module):
         """
         feature_nodes = self.feature_cast(x)  # (B, N, H)
         time_nodes, _ = self.time_cast(x.transpose(1, 2))  # (B, T, H)
+
 
         edge_index, edge_attr = self.build_graph_for_pyg(x, edge_mask)
         node_embs = torch.cat((feature_nodes, time_nodes), dim=1)  # (B, N + T, H)
@@ -792,3 +842,62 @@ class DilatedInception2d(nn.Module):
         x = self.act(x)
         x = self.dropout(x)
         return x
+
+    
+class HeteroFAGCN(MyGraphSage):
+    def __init__(
+        self,node_num,seq_len, in_channels, hidden_channels, n_layers, out_channels=None,
+        dropout=0, norm=None, act='relu',n_first=True, act_first=False, eps=0.1, **kwargs
+    ):
+        
+        self.node_num =node_num
+        self.seq_len = seq_len
+        self.n_first = n_first
+
+        super().__init__(in_channels, hidden_channels, n_layers, out_channels, dropout, norm, act, act_first, eps, **kwargs)
+        
+    def init_conv(self, in_channels, out_channels, dropout=0, **kwargs):
+        return STHeterConv(self.hidden_channels, eps=self.eps, n_first=self.n_first)
+        # return FAConv(in_channels, out_channels, **kwargs)
+    
+    def forward(self, x, edge_index, edge_attr=None):
+        # x: B * (N+T) * C
+        # edge_index: B,2,2*(N*T)
+        # edge_attr: B*E or B * (N * T )
+        
+        x_n = x[:, :self.node_num, :]
+        x_t = x[:, self.node_num:, :]
+        # edge_nt = edge_index[:,:,:self.node_num ]
+        # edge_tn = edge_index[:,:,self.node_num: ]
+        
+        origin = x
+        for i in range(self.num_layers):
+            xs = list()
+            for bi in range(x.shape[0]):
+                
+                edge_nt = torch.stack((
+                    edge_index[bi][0][edge_index[bi][0] < self.node_num], # source
+                    edge_index[bi][1][edge_index[bi][1] >= self.node_num] # target
+                    ))
+                edge_tn = torch.stack((
+                    edge_index[bi][0][edge_index[bi][0] >= self.node_num],
+                    edge_index[bi][1][edge_index[bi][1] < self.node_num]
+                    ))               
+                xt, xn = self.convs[i](x[bi], origin[bi],edge_nt,edge_tn)
+                xi = torch.concat((xn[:self.node_num, :], xt[self.node_num:, :]), axis=0)
+                xs.append(xi)
+            x = torch.stack(xs)
+            if i == self.num_layers - 1:
+                break
+            
+            if self.act_first:
+                x = self.act(x)
+            if self.norms is not None:
+                x = self.norms[i](x)
+            if not self.act_first:
+                x = self.act(x)
+            
+            x = F.dropout(x, p=self.dropout, training=self.training)
+        return x
+
+

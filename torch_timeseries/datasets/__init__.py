@@ -10,6 +10,8 @@ from .weather import Weather
 from .ETTm2 import ETTm2
 from .dummy import Dummy
 from .metr_la import METR_LA
+from .pems_bay import PEMS_BAY
+
 
 # __all__ = [
 #     "Traffic",
