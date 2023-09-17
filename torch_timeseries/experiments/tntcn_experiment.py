@@ -50,6 +50,8 @@ class TNTCNExperiment(Experiment):
     dilated_factor:bool=2
     
     without_gc:bool = False
+    without_gcn:bool = False
+    
     
     n_first : bool= True
     
@@ -65,6 +67,7 @@ class TNTCNExperiment(Experiment):
             no_space=self.no_space,
             no_time=self.no_time,
             act=self.act,
+            gcn_type=self.gcn_type,
             gcn_eps=self.gcn_eps,
             casting_dim=self.casting_dim,
             gcn_channel=self.gcn_channel,
@@ -75,6 +78,7 @@ class TNTCNExperiment(Experiment):
             tcn_channel=self.tcn_channel,
             tcn_layers=self.tcn_layers,
             dilated_factor=self.dilated_factor,
+            without_gcn=self.without_gcn,
             n_first=self.n_first
         )
         self.model = self.model.to(self.device)

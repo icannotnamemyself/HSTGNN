@@ -21,7 +21,7 @@ config_name = "your-config-name"  # 替换为你的配置名称
 
 # single steps report
 
-model_types = ["DLinear", "NLinear", "MTGNN", "Crossformer", "TSMixer", "FiLM", "GRU"]
+model_types = ["DLinear", "NLinear", "MTGNN", "Crossformer", "TSMixer", "FiLM", "GRU", "TNTCN"]
 datasets = ["ExchangeRate",  "ETTm1", "ETTm2", "ETTh1", "ETTh2"] #"ExchangeRate",
 horizons = [3, 6, 12, 24]
 
@@ -58,7 +58,7 @@ MTGNN   ETTh2   24     mae         0.2188±0.0054
 
 """
 
-df.unstack(0).to_excel('result.xls')
+df.unstack(0).to_excel('result.xlsx')
 """
 dataset                      Crossformer        DLinear FiLM            GRU       Informer     Informer-t          MTGNN NLinear TSMixer       TimesNet
 horizon metric model_type                                                                                                                              

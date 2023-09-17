@@ -9,7 +9,7 @@ os.environ['CUDA_DEVICE_ORDER'] = "PCI_BUS_ID"
 def main():
     horizons = [3,6,12,24]
     config = Config(
-        device="cuda:0",
+        device="cuda:3",
         horizons=horizons,
         datasets=[
             ("ETTm1", 384),
@@ -23,12 +23,13 @@ def main():
         model_paramaeters={
             'graph_build_type': 'full_connected',
             'gcn_type': 'heterofagcn',
-            'model_type': 'TNTCN_hetero_nt',
+            'model_type': 'TNTCN_hetero_nt1',
             'n_first': False,
+            'gcn_eps': 1
         }
     )
 
-    run(TNTCNExperiment, config, "BiSTGNN", "BiSTGNN_heter_nt")
+    run(TNTCNExperiment, config, "BiSTGNN", "BiSTGNN_heter_nt1")
 
 if __name__ == "__main__":
     main()

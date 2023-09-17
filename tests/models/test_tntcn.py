@@ -24,8 +24,10 @@ def test_tntcn(dummy_dataset_time: TimeSeriesDataset):
             input_seq_len=window,
             pred_horizon=1,
             multi_pred=False,
-            gcn_type='heterofagcn',
+            gcn_type='heterofastgcn',
             graph_build_type='full_connected',
+            n_first=True,
+            gcn_eps=0.9
             # graph_build_type='weighted_random_clip',
         )
     model = model.to(device)

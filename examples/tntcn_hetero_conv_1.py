@@ -18,18 +18,19 @@ def main():
             ("ETTh2", 384),
             ("ExchangeRate", 96),
             ("Weather", 168),
+            ("METR_LA", 288),
+            ("PEMS_BAY", 288),
         ],
         
         model_paramaeters={
             'graph_build_type': 'full_connected',
             'gcn_type': 'heterofagcn',
-            'model_type': 'TNTCN_hetero_tn1',
-            'n_first': True,
-            'gcn_eps': 1
+            'model_type': 'TNTCN_heteroconv_1_eps1',
+            'gcn_eps': 1,
         }
     )
 
-    run(TNTCNExperiment, config, "BiSTGNN", "BiSTGNN_heter_tn1")
+    run(TNTCNExperiment, config, "BiSTGNN", "BiSTGNN_hetero_conv1_eps1")
 
 if __name__ == "__main__":
     main()
