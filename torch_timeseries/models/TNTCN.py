@@ -9,6 +9,9 @@ from torch_geometric.nn.dense.linear import Linear
 from torch_geometric.nn import FAConv,HeteroConv
 from torch_geometric.nn import HeteroConv, GCNConv, SAGEConv, GATConv, Linear
 
+from torch_timeseries.layers.fastgcn2 import HeteroFASTGCN as HeteroFASTGCN2
+from torch_timeseries.layers.fastgcn3 import HeteroFASTGCN as HeteroFASTGCN3
+from torch_timeseries.layers.heterostgcn import HeteroFASTGCN as HeteroFASTGCN4
 from torch_timeseries.utils.norm import hetero_directed_norm
 
 
@@ -149,6 +152,9 @@ class STConv(MessagePassing):
         super().__init__(aggr='add')  # "Add" aggregation (Step 5).
         self.eps = eps
         self.att_g = Linear(2*in_channels,1, bias=False)
+        self.att_l = Linear(in_channels, 1, bias=False)
+        self.att_r = Linear(in_channels, 1, bias=False)
+
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -292,7 +298,19 @@ class TNModule(nn.Module):
                     act=act, eps=gcn_eps
                 )
             elif gcn_type == 'heterofastgcn':
-                self.gcn = HeteroFASTGCN(
+                self.gcn = HeteroFASTGCN2(
+                    n_nodes,input_seq_len,
+                    casting_dim, gcn_channel, gc_layers,
+                    act=act, eps=gcn_eps,n_first=self.n_first
+                )
+            elif gcn_type == 'heterofastgcn3':
+                self.gcn = HeteroFASTGCN3(
+                    n_nodes,input_seq_len,
+                    casting_dim, gcn_channel, gc_layers,
+                    act=act, eps=gcn_eps,n_first=self.n_first
+                )
+            elif gcn_type == 'heterofastgcn4':
+                self.gcn = HeteroFASTGCN4(
                     n_nodes,input_seq_len,
                     casting_dim, gcn_channel, gc_layers,
                     act=act, eps=gcn_eps,n_first=self.n_first
@@ -310,6 +328,25 @@ class TNModule(nn.Module):
                 nn.Linear(self.seq_len, self.seq_len)
             )
         # self.channel_layer = nn.Conv2d(1 if without_gc else 3, gcn_channel, (1, 1))
+   
+   
+    def build_heterograph_for_pyg(self, x):
+        n_nodes = self.n_nodes
+        seq_len = self.seq_len
+        tmp = torch.zeros((n_nodes + seq_len, n_nodes + seq_len)) # (NxT , NxT)
+        tmp[:n_nodes, n_nodes:] = 1
+        tmp[n_nodes:, :n_nodes] = 1
+        tmp[:n_nodes, :n_nodes] = 1
+        tmp[n_nodes:, n_nodes:] = 1
+        all_adj = tmp
+
+
+
+        # edge_index = torch.nonzero(tmp).T
+        # edge_index
+        
+        edge_attr = None
+        return all_adj,edge_attr
    
     def build_graph_for_pyg(self, x, remain_mask=None):
         # input: B N T
@@ -342,9 +379,20 @@ class TNModule(nn.Module):
         elif self.graph_build_type == 'full_connected':
             batch_indices = batch_indices
             
+        elif self.graph_build_type == 'nt_full_connected':
+            n_nodes = self.n_nodes
+            seq_len = self.seq_len
+            tmp = torch.zeros((n_nodes + seq_len, n_nodes + seq_len)) # (NxT , NxT)
+            tmp[:n_nodes, n_nodes:] = 1 # n t
+            tmp[n_nodes:, :n_nodes] = 1 # t n 
+            tmp[:n_nodes, :n_nodes] = 1 # t t 
+            tmp[n_nodes:, n_nodes:] = 1 # n n 
+            edge_index = torch.nonzero(tmp).T
+            batch_indices = edge_index.expand(batch_size, -1, -1).to(x.device)
+            return batch_indices , batch_values
         else:
             raise NotImplementedError("Graph constructor not implemented!!!")
-        
+
         return batch_indices, batch_values
 
     def forward(self, x, edge_mask=None):
@@ -671,55 +719,6 @@ class GraphConvolution(nn.Module):
         return output
 
 
-# class FAConv(nn.Module):
-#     def __init__(self, in_channel, out_channel, add_self_loop=True, normalize=True, bias=True):
-#         super().__init__()
-#         self.add_self_loop = add_self_loop
-#         self.normalize = normalize
-#         self.lin = Linear(in_channel, out_channel, bias=False, weight_initializer='glorot')
-#         self.gate = Linear(2 * in_channel, 1)
-
-#         if bias:
-#             self.bias = nn.Parameter(torch.Tensor(out_channel))
-#         else:
-#             self.register_parameter('bias', None)
-    
-#     def forward(self, inputs, adj):
-#         """
-#         Args:
-#             inputs: (batch, N, in_channels)
-#             adj: (N, N)
-#         Return:
-#             output: (batch, N, out_channels)
-#         """
-#         batch, n_nodes, Cin = inputs.shape
-
-#         inputs = inputs.permute(1, 2, 0)  # (N, C, B)
-#         ex_inputs = inputs.expand(n_nodes, n_nodes, Cin, batch)  # (N, N, C, B)
-#         ex_inputs = torch.cat((ex_inputs.transpose(0, 1), ex_inputs), dim=-2)  # (N, N, 2C, B)
-#         ex_inputs = ex_inputs.permute(3, 0, 1, 2)  # (B, N, N, 2C)
-#         adj_gates = torch.tanh(self.gate(ex_inputs).squeeze(-1))  # (B, N, N)
-
-#         # add self-loop
-#         if self.add_self_loop:
-#             adj = adj + torch.eye(n_nodes).to(adj.device)
-        
-#         # normalization
-#         if self.normalize:
-#             adj = adj / adj.sum(-1).unsqueeze(-1)
-        
-#         adj = adj_gates * adj
-        
-#         inputs = self.lin(inputs)  # (batch, N, out_channel)
-
-#         # message passing
-#         output = torch.einsum('bnc, bvn->bvc', (inputs, adj))  # (B, N, out_channel)
-#         # output = torch.einsum('bnc, vn->bvc', (inputs, adj))
-
-#         if self.bias is not None:
-#             output = output + self.bias
-        
-#         return output
 
 
 class MixProp(nn.Module):
@@ -762,83 +761,83 @@ class MixProp(nn.Module):
         return ho
 
 
-class EGraphSage(MessagePassing):
-    """Non-minibatch version of GraphSage."""
-    def __init__(self, in_channels, out_channels,
-                 edge_channels=1, activation='elu', edge_mode=1,
-                 normalize_emb=False, aggr='add'):
-        super(EGraphSage, self).__init__(aggr=aggr)
+# class EGraphSage(MessagePassing):
+#     """Non-minibatch version of GraphSage."""
+#     def __init__(self, in_channels, out_channels,
+#                  edge_channels=1, activation='elu', edge_mode=1,
+#                  normalize_emb=False, aggr='add'):
+#         super(EGraphSage, self).__init__(aggr=aggr)
 
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.edge_channels = edge_channels
-        self.edge_mode = edge_mode
-        self.act = activation_resolver.make(activation)
+#         self.in_channels = in_channels
+#         self.out_channels = out_channels
+#         self.edge_channels = edge_channels
+#         self.edge_mode = edge_mode
+#         self.act = activation_resolver.make(activation)
 
-        if edge_mode == 0:
-            self.message_lin = nn.Linear(in_channels, out_channels)
-            self.attention_lin = nn.Linear(2*in_channels+edge_channels, 1)
-        elif edge_mode == 1:
-            self.message_lin = nn.Linear(in_channels+edge_channels, out_channels)
-        elif edge_mode == 2:
-            self.message_lin = nn.Linear(2*in_channels+edge_channels, out_channels)
-        elif edge_mode == 3:
-            self.message_lin = nn.Sequential(
-                    nn.Linear(2*in_channels+edge_channels, out_channels),
-                    self.act,
-                    nn.Linear(out_channels, out_channels),
-                    )
-        elif edge_mode == 4:
-            self.message_lin = nn.Linear(in_channels, out_channels*edge_channels)
-        elif edge_mode == 5:
-            self.message_lin = nn.Linear(2*in_channels, out_channels*edge_channels)
+#         if edge_mode == 0:
+#             self.message_lin = nn.Linear(in_channels, out_channels)
+#             self.attention_lin = nn.Linear(2*in_channels+edge_channels, 1)
+#         elif edge_mode == 1:
+#             self.message_lin = nn.Linear(in_channels+edge_channels, out_channels)
+#         elif edge_mode == 2:
+#             self.message_lin = nn.Linear(2*in_channels+edge_channels, out_channels)
+#         elif edge_mode == 3:
+#             self.message_lin = nn.Sequential(
+#                     nn.Linear(2*in_channels+edge_channels, out_channels),
+#                     self.act,
+#                     nn.Linear(out_channels, out_channels),
+#                     )
+#         elif edge_mode == 4:
+#             self.message_lin = nn.Linear(in_channels, out_channels*edge_channels)
+#         elif edge_mode == 5:
+#             self.message_lin = nn.Linear(2*in_channels, out_channels*edge_channels)
 
-        self.agg_lin = nn.Linear(in_channels+out_channels, out_channels)
+#         self.agg_lin = nn.Linear(in_channels+out_channels, out_channels)
 
-        self.message_activation = self.act
-        self.update_activation = self.act
-        self.normalize_emb = normalize_emb
+#         self.message_activation = self.act
+#         self.update_activation = self.act
+#         self.normalize_emb = normalize_emb
 
-    def forward(self, x, edge_attr, edge_index):
-        num_nodes = x.size(0)
-        # x has shape [N, in_channels]
-        # edge_index has shape [2, E]
+#     def forward(self, x, edge_attr, edge_index):
+#         num_nodes = x.size(0)
+#         # x has shape [N, in_channels]
+#         # edge_index has shape [2, E]
 
-        return self.propagate(edge_index, x=x, edge_attr=edge_attr, size=(num_nodes, num_nodes))
+#         return self.propagate(edge_index, x=x, edge_attr=edge_attr, size=(num_nodes, num_nodes))
 
-    def message(self, x_i, x_j, edge_attr, edge_index, size):
-        # x_j has shape [E, in_channels]
-        # edge_index has shape [2, E]
-        if self.edge_mode == 0:
-            attention = self.attention_lin(torch.cat((x_i,x_j, edge_attr),dim=-1))
-            m_j = attention * self.message_activation(self.message_lin(x_j))
-        elif self.edge_mode == 1:
-            m_j = torch.cat((x_j, edge_attr),dim=-1)
-            m_j = self.message_activation(self.message_lin(m_j))
-        elif self.edge_mode == 2 or self.edge_mode == 3:
-            m_j = torch.cat((x_i,x_j, edge_attr),dim=-1)
-            m_j = self.message_activation(self.message_lin(m_j))
-        elif self.edge_mode == 4:
-            E = x_j.shape[0]
-            w = self.message_lin(x_j)
-            w = self.message_activation(w)
-            w = torch.reshape(w, (E,self.out_channels,self.edge_channels))
-            m_j = torch.bmm(w, edge_attr.unsqueeze(-1)).squeeze(-1)
-        elif self.edge_mode == 5:
-            E = x_j.shape[0]
-            w = self.message_lin(torch.cat((x_i,x_j),dim=-1))
-            w = self.message_activation(w)
-            w = torch.reshape(w, (E,self.out_channels,self.edge_channels))
-            m_j = torch.bmm(w, edge_attr.unsqueeze(-1)).squeeze(-1)
-        return m_j
+#     def message(self, x_i, x_j, edge_attr, edge_index, size):
+#         # x_j has shape [E, in_channels]
+#         # edge_index has shape [2, E]
+#         if self.edge_mode == 0:
+#             attention = self.attention_lin(torch.cat((x_i,x_j, edge_attr),dim=-1))
+#             m_j = attention * self.message_activation(self.message_lin(x_j))
+#         elif self.edge_mode == 1:
+#             m_j = torch.cat((x_j, edge_attr),dim=-1)
+#             m_j = self.message_activation(self.message_lin(m_j))
+#         elif self.edge_mode == 2 or self.edge_mode == 3:
+#             m_j = torch.cat((x_i,x_j, edge_attr),dim=-1)
+#             m_j = self.message_activation(self.message_lin(m_j))
+#         elif self.edge_mode == 4:
+#             E = x_j.shape[0]
+#             w = self.message_lin(x_j)
+#             w = self.message_activation(w)
+#             w = torch.reshape(w, (E,self.out_channels,self.edge_channels))
+#             m_j = torch.bmm(w, edge_attr.unsqueeze(-1)).squeeze(-1)
+#         elif self.edge_mode == 5:
+#             E = x_j.shape[0]
+#             w = self.message_lin(torch.cat((x_i,x_j),dim=-1))
+#             w = self.message_activation(w)
+#             w = torch.reshape(w, (E,self.out_channels,self.edge_channels))
+#             m_j = torch.bmm(w, edge_attr.unsqueeze(-1)).squeeze(-1)
+#         return m_j
 
-    def update(self, aggr_out, x):
-        # aggr_out has shape [N, out_channels]
-        # x has shape [N, in_channels]
-        aggr_out = self.update_activation(self.agg_lin(torch.cat((aggr_out, x),dim=-1)))
-        if self.normalize_emb:
-            aggr_out = F.normalize(aggr_out, p=2, dim=-1)
-        return aggr_out
+#     def update(self, aggr_out, x):
+#         # aggr_out has shape [N, out_channels]
+#         # x has shape [N, in_channels]
+#         aggr_out = self.update_activation(self.agg_lin(torch.cat((aggr_out, x),dim=-1)))
+#         if self.normalize_emb:
+#             aggr_out = F.normalize(aggr_out, p=2, dim=-1)
+#         return aggr_out
 
 
 class DilatedInception(nn.Module):
@@ -955,70 +954,70 @@ class NoGCN(torch.nn.Module):
 
 
     
-class HeteroFASTGCN(MyGraphSage):
-    def __init__(
-        self,node_num,seq_len, in_channels, hidden_channels, n_layers, out_channels=None,
-        dropout=0, norm=None, act='relu',n_first=True, act_first=False, eps=0.9, **kwargs
-    ):
+# class HeteroFASTGCN(MyGraphSage):
+#     def __init__(
+#         self,node_num,seq_len, in_channels, hidden_channels, n_layers, out_channels=None,
+#         dropout=0, norm=None, act='relu',n_first=True, act_first=False, eps=0.9, **kwargs
+#     ):
         
-        self.node_num =node_num
-        self.seq_len = seq_len
-        self.n_first = n_first
+#         self.node_num =node_num
+#         self.seq_len = seq_len
+#         self.n_first = n_first
 
-        super().__init__(in_channels, hidden_channels, n_layers, out_channels, dropout, norm, act, act_first, eps, **kwargs)
+#         super().__init__(in_channels, hidden_channels, n_layers, out_channels, dropout, norm, act, act_first, eps, **kwargs)
         
-    def init_conv(self, in_channels, out_channels, **kwargs):
+#     def init_conv(self, in_channels, out_channels, **kwargs):
         
-        hetero_conv = HeteroConv({
-            ('s', 's2t', 't'): STConv(in_channels, out_channels, eps=self.eps),
-            ('t', 't2s', 's'): TSConv(in_channels, out_channels, eps=self.eps),
-        }, aggr='sum')
-        return hetero_conv
-        # return FAConv(in_channels, out_channels, **kwargs)
+#         hetero_conv = HeteroConv({
+#             ('s', 's2t', 't'): STConv(in_channels, out_channels, eps=self.eps),
+#             ('t', 't2s', 's'): TSConv(in_channels, out_channels, eps=self.eps),
+#         }, aggr='sum')
+#         return hetero_conv
+#         # return FAConv(in_channels, out_channels, **kwargs)
     
-    def forward(self, x, edge_index, edge_attr=None):
-        # x: B * (N+T) * C
-        # edge_index: B,2,2*(N*T)
-        # edge_attr: B*E or B * (N * T )
+#     def forward(self, x, edge_index, edge_attr=None):
+#         # x: B * (N+T) * C
+#         # edge_index: B,2,2*(N*T)
+#         # edge_attr: B*E or B * (N * T )
 
-        for i in range(self.num_layers):
-            xs = list()
-            for bi in range(x.shape[0]):
-                edge_nt = torch.stack((
-                    edge_index[bi][0][edge_index[bi][0] < self.node_num], # source
-                    edge_index[bi][1][edge_index[bi][1] >= self.node_num] # target
-                ))
-                edge_tn = torch.stack((
-                    edge_index[bi][0][edge_index[bi][0] >= self.node_num],
-                    edge_index[bi][1][edge_index[bi][1] < self.node_num]
-                ))               
+#         for i in range(self.num_layers):
+#             xs = list()
+#             for bi in range(x.shape[0]):
+#                 edge_nt = torch.stack((
+#                     edge_index[bi][0][edge_index[bi][0] < self.node_num], # source
+#                     edge_index[bi][1][edge_index[bi][1] >= self.node_num] # target
+#                 ))
+#                 edge_tn = torch.stack((
+#                     edge_index[bi][0][edge_index[bi][0] >= self.node_num],
+#                     edge_index[bi][1][edge_index[bi][1] < self.node_num]
+#                 ))               
 
-                x_dict = {
-                    's': x[bi][:self.node_num,:],
-                    't': x[bi][self.node_num:,:]
-                }
-                edge_index_dict = {
-                    ('s', 's2t', 't'): edge_nt,
-                    ('t', 't2s', 's'): edge_tn,
-                }
-                out_dict = self.convs[i](x_dict,edge_index_dict )
+#                 x_dict = {
+#                     's': x[bi][:self.node_num,:],
+#                     't': x[bi][self.node_num:,:]
+#                 }
+#                 edge_index_dict = {
+#                     ('s', 's2t', 't'): edge_nt,
+#                     ('t', 't2s', 's'): edge_tn,
+#                 }
+#                 out_dict = self.convs[i](x_dict,edge_index_dict )
                 
-                # combining spatial and temporal mixed information
-                xi = x[bi] + out_dict['s'] + out_dict['t']
-                # xi = self.convs[i](x[bi], edge_index[bi])
-                xs.append(xi)
-            x = torch.stack(xs)
-            if i == self.num_layers - 1:
-                break
+#                 # combining spatial and temporal mixed information
+#                 xi = x[bi] + out_dict['s'] + out_dict['t']
+#                 # xi = self.convs[i](x[bi], edge_index[bi])
+#                 xs.append(xi)
+#             x = torch.stack(xs)
+#             if i == self.num_layers - 1:
+#                 break
             
-            if self.act_first:
-                x = self.act(x)
-            if self.norms is not None:
-                x = self.norms[i](x)
-            if not self.act_first:
-                x = self.act(x)
+#             if self.act_first:
+#                 x = self.act(x)
+#             if self.norms is not None:
+#                 x = self.norms[i](x)
+#             if not self.act_first:
+#                 x = self.act(x)
             
-            x = F.dropout(x, p=self.dropout, training=self.training)
-        return x
+#             x = F.dropout(x, p=self.dropout, training=self.training)
+#         return x
 
 
