@@ -16,6 +16,9 @@ def main():
             ("ETTh2", 384),
             ("ExchangeRate", 96),
             ("Weather", 168),
+            ("METR_LA", 288),
+            ("PEMS_BAY", 288),
+
         ]
     )
 

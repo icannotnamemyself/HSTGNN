@@ -1,0 +1,157 @@
+import copy
+import math
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from class_resolver.contrib.torch import activation_resolver
+from torch_geometric.nn.conv import MessagePassing
+from torch_geometric.nn.dense.linear import Linear
+from torch_geometric.nn import FAConv, HeteroConv
+from torch_geometric.nn.conv.gcn_conv import gcn_norm
+
+from torch_geometric.nn import HeteroConv, Linear, HANConv
+
+from torch_timeseries.utils.norm import hetero_directed_norm
+
+# from torch_timeseries.layers.graphsage import MyGraphSage
+
+
+class HAN(nn.Module):
+    def __init__(
+        self,
+        node_num,
+        seq_len,
+        in_channels,
+        hidden_channels,
+        out_channels,
+        n_layers,
+        dropout=0.0,
+        norm=None,
+        heads=1,
+        negative_slope=0.2,
+        act="relu",
+        n_first=True,
+        act_first=False,
+        eps=0.9,
+        **kwargs
+    ):
+        self.node_num = node_num
+        self.seq_len = seq_len
+        self.n_first = n_first
+
+        super().__init__()
+
+        self.in_channels = in_channels
+        self.hidden_channels = hidden_channels
+        self.num_layers = n_layers
+        
+        self.heads = heads
+        self.negative_slope = negative_slope
+
+        self.dropout = dropout
+        self.act = activation_resolver.make(act)
+        self.act_first = act_first
+        self.eps = eps
+
+        self.out_channels = hidden_channels
+
+        assert (
+            n_layers >= 2
+        ), "intra and inter conv layers must greater than or equals to 2 "
+
+        
+        # 定义元路径
+        self.metadata = [
+            ['s', 't'],
+            [('s', 's2s', 's'), ('t', 't2t', 't'), ('s', 's2t', 't'),('t', 't2s', 's')]
+        ]
+
+        
+        self.convs = nn.ModuleList()
+        
+        if n_layers > 1:
+            self.convs.append(self.init_conv(self.in_channels,hidden_channels))
+        
+        for i in range(n_layers - 2):
+            self.convs.append(self.init_conv(self.hidden_channels,hidden_channels))
+        
+        self.convs.append(self.init_conv(self.in_channels,out_channels))
+        
+        self.norms = None
+        if norm is not None:
+            self.norms = nn.ModuleList()
+            for _ in range(n_layers - 1):
+                self.norms.append(copy.deepcopy(norm))
+
+
+    def init_conv(self, in_channels, out_channels, **kwargs):
+        han = HANConv(in_channels, out_channels,self.metadata,heads=self.heads, negative_slope=self.negative_slope,dropout=self.dropout)
+        return han
+    
+    def forward(self, x, edge_index, edge_attr=None):
+        # x: B * (N+T) * C
+        # edge_index: B,2,2*(N*T)
+        # edge_attr: B*E or B * (N * T )
+
+        for i in range(self.num_layers):
+            xs = list()
+            for bi in range(x.shape[0]):
+                x_dict = {
+                    "s": x[bi][: self.node_num, :],
+                    "t": x[bi][self.node_num :, :],
+                }
+                edge_index_bi = edge_index[bi]
+                # TODO: edge may be empty, please ensure no empty edges here
+                assert ((edge_index_bi[0] < self.node_num) 
+                    & (edge_index_bi[1] < self.node_num)).any() == True
+                
+                edge_nn = edge_index_bi[
+                    :,
+                    (edge_index_bi[0] < self.node_num) 
+                    & (edge_index_bi[1] < self.node_num), 
+                ]
+                edge_tt = edge_index_bi[
+                    :,
+                    (edge_index_bi[0] >= self.node_num) & (edge_index_bi[1] >= self.node_num), # include self loop
+                ] 
+                edge_nt = edge_index_bi[
+                    :,
+                    (edge_index_bi[0] < self.node_num)
+                    & (edge_index_bi[1] >= self.node_num),
+                ]
+                edge_tn = edge_index_bi[
+                    :,
+                    (edge_index_bi[0] >= self.node_num)
+                    & (edge_index_bi[1] < self.node_num),
+                ]
+
+                
+                # convert edge index to edge index dict
+                edge_tt = edge_tt - self.node_num 
+                edge_nt[1, :] = edge_nt[1, :] - self.node_num
+                edge_tn[0, :] = edge_tn[0, :] - self.node_num
+
+                edge_index_dict = {
+                    ("s", "s2s", "s"): edge_nn,
+                    ("t", "t2t", "t"): edge_tt,
+                    ("s", "s2t", "t"): edge_nt,
+                    ("t", "t2s", "s"): edge_tn,
+                }
+                out_dict = self.convs[i](x_dict, edge_index_dict)
+                xi = torch.concat([out_dict["s"], out_dict["t"]], dim=0)
+                xs.append(xi)
+                
+            x = torch.stack(xs)
+            if i == self.num_layers - 1:
+                break
+
+            if self.act_first:
+                x = self.act(x)
+            if self.norms is not None:
+                x = self.norms[i](x)
+            if not self.act_first:
+                x = self.act(x)
+
+            x = F.dropout(x, p=self.dropout, training=self.training)
+        return x
+

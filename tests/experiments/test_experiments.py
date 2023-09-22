@@ -2,7 +2,7 @@
 from turtle import forward
 from torch import Tensor
 import torch.nn as nn
-from torch_timeseries.nn.dialted_inception import DilatedInception
+from torch_timeseries.nn.dilated_inception import DilatedInception
 from torch_timeseries.nn.timeseries_startconv import TimeSeriesStartConv
 import torch.nn.functional as F
 import torch

@@ -3,35 +3,40 @@ import torch
 from torch import nn
 from torch_timeseries.layers.heterostgcn5 import HeteroFASTGCN as HeteroFASTGCN5
 from torch_timeseries.layers.heterostgcn6 import HeteroFASTGCN as HeteroFASTGCN6
+from torch_timeseries.layers.han import HAN
 from torch_timeseries.layers.tcn_output import TCNOuputLayer
 
 
-class BiSTGNN(nn.Module):
+class BiSTGNNv2(nn.Module):
     def __init__(
         self,
         seq_len,
         num_nodes,
         temporal_embed_dim,
         graph_build_type="adaptive",
-        graph_conv_type="fastgcn5",
+        graph_conv_type="han",
+        heads=1,
+        negative_slope=0.2,
         gcn_layers=2,
         tn_layers=2,
         rebuild_time=True,
         rebuild_space=True,
         node_static_embed_dim=32,
-        latent_dim=64,
+        latent_dim=32,
         tcn_layers=3,
         dilated_factor=2,
         tcn_channel=16,
         dropout=0.0,
         act='elu'
     ):
-        super(BiSTGNN, self).__init__()
+        super(BiSTGNNv2, self).__init__()
 
         self.num_nodes = num_nodes
         self.static_embed_dim = node_static_embed_dim
         self.latent_dim = latent_dim
         self.tn_layers = tn_layers
+        self.heads = heads
+        self.negative_slope = negative_slope
 
         self.spatial_encoder = SpatialEncoder(
             seq_len,
@@ -51,15 +56,16 @@ class BiSTGNN(nn.Module):
         self.rebuild_space = rebuild_space
 
         # Rebuild Module
-        if rebuild_time:
-            self.feature_rebuild = nn.GRU(latent_dim, seq_len, batch_first=True)
         if rebuild_space:
-            self.time_rebuild = nn.Sequential(
-                nn.Linear(latent_dim, num_nodes),
+            self.feature_rebuild = nn.Sequential(
+                nn.Linear(latent_dim, seq_len),
                 torch.nn.ELU(),
-                nn.Linear(num_nodes, num_nodes),
+                nn.Linear(seq_len, seq_len),
             )
 
+        if rebuild_time:
+            self.time_rebuild = nn.GRU(latent_dim, num_nodes, batch_first=True)
+        
         self.tn_modules = nn.ModuleList()
         for i in range(self.tn_layers):
             self.tn_modules.append(
@@ -70,6 +76,10 @@ class BiSTGNN(nn.Module):
                     gcn_layers,
                     graph_build_type=graph_build_type,
                     graph_conv_type=graph_conv_type,
+                    heads=self.heads,
+                    negative_slope=self.negative_slope,
+                    dropout=dropout,
+                    act=act,
                 )
             )
 
@@ -105,10 +115,10 @@ class BiSTGNN(nn.Module):
         Xt = X[:, self.num_nodes :, :]  # (B, T, D)
         outputs = list()
         if self.rebuild_space:
-            n_output, _ = self.feature_rebuild(Xs)  # (B, N, T)
+            n_output = self.feature_rebuild(Xs)  # (B, N, T)
             outputs.append(n_output.unsqueeze(1))
         if self.rebuild_time:
-            t_output = self.time_rebuild(Xt)  # (B, T, N)
+            t_output,_ = self.time_rebuild(Xt)  # (B, T, N)
             outputs.append(t_output.unsqueeze(1).transpose(2, 3))
         outputs.append(x.unsqueeze(1))  # （B, 1/2/3, N, T)
 
@@ -122,12 +132,16 @@ class BiSTGNN(nn.Module):
 class TNModule(nn.Module):
     def __init__(
         self, num_nodes, seq_len, latent_dim, gcn_layers, graph_build_type="adaptive",
-        graph_conv_type='fastgcn5'
+        graph_conv_type='fastgcn5',heads=1,negative_slope=0.2,dropout=0.0,act='elu'
     ) -> None:
         super().__init__()
 
         self.num_nodes = num_nodes
         self.seq_len = seq_len
+        self.heads = heads
+        self.negative_slope = negative_slope
+        self.dropout = dropout
+        self.act=  act
 
         if graph_build_type == "adaptive":
             self.graph_constructor = STGraphConstructor()
@@ -139,6 +153,11 @@ class TNModule(nn.Module):
         elif graph_conv_type == 'fastgcn6':
             self.graph_conv = HeteroFASTGCN6(
                 num_nodes, seq_len, latent_dim, latent_dim, gcn_layers, dropout=0,act='elu'
+            )
+        elif graph_conv_type == 'han':
+            self.graph_conv = HAN(
+                num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
+                heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act
             )
         self.graph_embedding = GraphEmbeeding(latent_dim=latent_dim)
 
@@ -249,9 +268,13 @@ class STGraphConstructor(nn.Module):
         _, T, _ = temporal_nodes.size()
 
         node_embs = torch.concat([spatial_nodes, temporal_nodes], dim=1)
-        adj = torch.tanh(
-            torch.relu(torch.einsum("bnf, bmf -> bnm", node_embs, node_embs))
-        )
+        adj = torch.relu(torch.einsum("bnf, bmf -> bnm", node_embs, node_embs))
+        # add self loop
+
+        # Create a unit matrix and expand its dimensions to match the dimensions of x
+        eye = torch.eye(N+T,N+T).to(adj.device)  # Ensure the unit matrix is on the same device as x
+        eye_expanded = eye.unsqueeze(0).repeat(B, 1, 1)  # Expand the unit matrix to shape (B, N, N)
+        adj = torch.tanh(adj + eye_expanded)
 
         batch_indices = list()
         batch_values = list()

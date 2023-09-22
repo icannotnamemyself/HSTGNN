@@ -55,10 +55,10 @@ class ResultRelatedSettings:
     model_type: str = ""
     scaler_type: str = "StandarScaler"
     loss_func_type: str = "mse"
-    batch_size: int = 32
+    batch_size: int = 128
     lr: float = 0.0003
     l2_weight_decay: float = 0.0005
-    epochs: int = 1
+    epochs: int = 100
 
     horizon: int = 3
     windows: int = 384
@@ -683,7 +683,7 @@ class Experiment(Settings):
                 wandb.run.summary[f"{index}_mean"] = row["mean"]
                 wandb.run.summary[f"{index}_std"] = row["std"]
                 wandb.run.summary[index] = f"{row['mean']:.4f}±{row['std']:.4f}"
-
+        return self.metric_mean_std
 
 def main():
     exp = Experiment(

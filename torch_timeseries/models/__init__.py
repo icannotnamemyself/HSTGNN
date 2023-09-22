@@ -10,3 +10,5 @@ from .LightTS import LightTS
 from .LaST import LaST
 from .DeepTIMe import DeepTIMe
 from .TNTCN import TNTCN
+from .BiSTGNNv1 import BiSTGNN
+from .BiSTGNNv2 import BiSTGNNv2

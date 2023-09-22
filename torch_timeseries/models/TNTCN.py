@@ -12,7 +12,10 @@ from torch_geometric.nn import HeteroConv, GCNConv, SAGEConv, GATConv, Linear
 from torch_timeseries.layers.fastgcn2 import HeteroFASTGCN as HeteroFASTGCN2
 from torch_timeseries.layers.fastgcn3 import HeteroFASTGCN as HeteroFASTGCN3
 from torch_timeseries.layers.heterostgcn import HeteroFASTGCN as HeteroFASTGCN4
+from torch_timeseries.layers.heterostgcn5 import HeteroFASTGCN as HeteroFASTGCN5
+from torch_timeseries.layers.heterostgcn6 import HeteroFASTGCN as HeteroFASTGCN6
 from torch_timeseries.utils.norm import hetero_directed_norm
+
 
 
 class TNTCN(nn.Module):
@@ -252,7 +255,7 @@ class TNMLP(nn.Module):
 
 
 class TNModule(nn.Module):
-    def __init__(self, n_nodes, input_seq_len,remain_prob,gcn_type,gcn_eps,casting_dim,gcn_channel, gc_layers, edge_mode, aggr_mode, dropout,act,tcn_channel,pred_horizon,multi_pred,no_time ,no_space, dilated_factor, tcn_layers,one_node_forecast,graph_build_type='weighted_random_clip',without_gcn=False,n_first=True):
+    def __init__(self, n_nodes, input_seq_len,remain_prob,gcn_type,gcn_eps,casting_dim,gcn_channel, gc_layers, edge_mode, aggr_mode, dropout,act,tcn_channel,pred_horizon,multi_pred,no_time ,no_space, dilated_factor, tcn_layers,one_node_forecast,embed_dim=16,graph_build_type='weighted_random_clip',without_gcn=False,n_first=True):
         # graph_build_type: weighted_random_clip full_connected
         
         super().__init__()
@@ -262,6 +265,10 @@ class TNModule(nn.Module):
         self.n_nodes = n_nodes
         self.seq_len = input_seq_len
         self.n_first =n_first
+        self.embed_dim = embed_dim
+        
+        # self.n_embedding =  torch.nn.Parameter(torch.randn(n_nodes, embed_dim))
+        # self.t_embedding =  torch.nn.Parameter(torch.randn(input_seq_len, embed_dim))
         
         self.graph_build_type = graph_build_type
 
@@ -315,6 +322,18 @@ class TNModule(nn.Module):
                     casting_dim, gcn_channel, gc_layers,
                     act=act, eps=gcn_eps,n_first=self.n_first
                 )
+            elif gcn_type == 'heterofastgcn5':
+                self.gcn = HeteroFASTGCN5(
+                    n_nodes,input_seq_len,
+                    casting_dim, gcn_channel, gc_layers,
+                    act=act, eps=gcn_eps,n_first=self.n_first
+                )
+            elif gcn_type == 'heterofastgcn6':
+                self.gcn = HeteroFASTGCN6(
+                    n_nodes,input_seq_len,
+                    casting_dim, gcn_channel, gc_layers,
+                    act=act, eps=gcn_eps,n_first=self.n_first
+                )
             else:
                 raise NotImplementedError("gcn type not supported! ")
 
@@ -348,7 +367,7 @@ class TNModule(nn.Module):
         edge_attr = None
         return all_adj,edge_attr
    
-    def build_graph_for_pyg(self, x, remain_mask=None):
+    def build_graph_for_pyg(self, x,node_embs=None, remain_mask=None, predefined_nn_adj=None, edge_rate=0.5):
         # input: B N T
         # output: 
             # edge_index: B , 2, 2*(N+T)
@@ -390,6 +409,38 @@ class TNModule(nn.Module):
             edge_index = torch.nonzero(tmp).T
             batch_indices = edge_index.expand(batch_size, -1, -1).to(x.device)
             return batch_indices , batch_values
+
+        elif self.graph_build_type == 'nt_adaptive_graph':
+            n_nodes = self.n_nodes
+            seq_len = self.seq_len
+
+            
+            adj = torch.softmax(torch.relu(torch.einsum("bnf, bmf -> bnm", node_embs,node_embs)), dim=0)
+            def build_adj(node_embs):
+                # node_embs : (B , N+T,F)
+                tmp = torch.relu(torch.einsum("bnf, bmf -> bnm", node_embs,node_embs))
+                softmax_output = torch.softmax(tmp, dim=-1)
+                
+                softmax_output[tmp == 0] = 0
+
+                return softmax_output
+            
+            adj = build_adj(node_embs)
+            res = list()
+            weight_res= list()
+            for bi in range(len(node_embs)):
+                adj.nonzero().t()
+                source_nodes, target_nodes = adj[bi].nonzero().t()
+                edge_weights = adj[bi][source_nodes, target_nodes]
+                edge_index_i = torch.stack([source_nodes, target_nodes], dim=0)
+                res.append(edge_index_i)
+                weight_res.append(edge_weights)
+            batch_indices = res
+            batch_values = weight_res
+            # edge_index = torch.nonzero(adj).T
+            # batch_indices = edge_index.expand(batch_size, -1, -1).to(x.device)
+            return batch_indices , batch_values
+
         else:
             raise NotImplementedError("Graph constructor not implemented!!!")
 
@@ -399,6 +450,7 @@ class TNModule(nn.Module):
         """
         x.shape: (batch, n_nodes, seq_len) -> output.shape: (batch, 3, n_nodes, seq_len)
         """
+        
         feature_nodes = self.feature_cast(x)  # (B, N, H)
         time_nodes, _ = self.time_cast(x.transpose(1, 2))  # (B, T, H)
 
@@ -408,7 +460,7 @@ class TNModule(nn.Module):
         if self.without_gcn:
             output = node_embs
         else:   
-            edge_index, edge_attr = self.build_graph_for_pyg(x, edge_mask)
+            edge_index, edge_attr = self.build_graph_for_pyg(x, remain_mask=edge_mask, node_embs=node_embs)
             output = self.gcn(node_embs , edge_index ,edge_attr=edge_attr) # (B, N + T, H)
         
         n_output = output[:, :self.n_nodes, :]  # (B, N, C_out)
@@ -761,85 +813,6 @@ class MixProp(nn.Module):
         return ho
 
 
-# class EGraphSage(MessagePassing):
-#     """Non-minibatch version of GraphSage."""
-#     def __init__(self, in_channels, out_channels,
-#                  edge_channels=1, activation='elu', edge_mode=1,
-#                  normalize_emb=False, aggr='add'):
-#         super(EGraphSage, self).__init__(aggr=aggr)
-
-#         self.in_channels = in_channels
-#         self.out_channels = out_channels
-#         self.edge_channels = edge_channels
-#         self.edge_mode = edge_mode
-#         self.act = activation_resolver.make(activation)
-
-#         if edge_mode == 0:
-#             self.message_lin = nn.Linear(in_channels, out_channels)
-#             self.attention_lin = nn.Linear(2*in_channels+edge_channels, 1)
-#         elif edge_mode == 1:
-#             self.message_lin = nn.Linear(in_channels+edge_channels, out_channels)
-#         elif edge_mode == 2:
-#             self.message_lin = nn.Linear(2*in_channels+edge_channels, out_channels)
-#         elif edge_mode == 3:
-#             self.message_lin = nn.Sequential(
-#                     nn.Linear(2*in_channels+edge_channels, out_channels),
-#                     self.act,
-#                     nn.Linear(out_channels, out_channels),
-#                     )
-#         elif edge_mode == 4:
-#             self.message_lin = nn.Linear(in_channels, out_channels*edge_channels)
-#         elif edge_mode == 5:
-#             self.message_lin = nn.Linear(2*in_channels, out_channels*edge_channels)
-
-#         self.agg_lin = nn.Linear(in_channels+out_channels, out_channels)
-
-#         self.message_activation = self.act
-#         self.update_activation = self.act
-#         self.normalize_emb = normalize_emb
-
-#     def forward(self, x, edge_attr, edge_index):
-#         num_nodes = x.size(0)
-#         # x has shape [N, in_channels]
-#         # edge_index has shape [2, E]
-
-#         return self.propagate(edge_index, x=x, edge_attr=edge_attr, size=(num_nodes, num_nodes))
-
-#     def message(self, x_i, x_j, edge_attr, edge_index, size):
-#         # x_j has shape [E, in_channels]
-#         # edge_index has shape [2, E]
-#         if self.edge_mode == 0:
-#             attention = self.attention_lin(torch.cat((x_i,x_j, edge_attr),dim=-1))
-#             m_j = attention * self.message_activation(self.message_lin(x_j))
-#         elif self.edge_mode == 1:
-#             m_j = torch.cat((x_j, edge_attr),dim=-1)
-#             m_j = self.message_activation(self.message_lin(m_j))
-#         elif self.edge_mode == 2 or self.edge_mode == 3:
-#             m_j = torch.cat((x_i,x_j, edge_attr),dim=-1)
-#             m_j = self.message_activation(self.message_lin(m_j))
-#         elif self.edge_mode == 4:
-#             E = x_j.shape[0]
-#             w = self.message_lin(x_j)
-#             w = self.message_activation(w)
-#             w = torch.reshape(w, (E,self.out_channels,self.edge_channels))
-#             m_j = torch.bmm(w, edge_attr.unsqueeze(-1)).squeeze(-1)
-#         elif self.edge_mode == 5:
-#             E = x_j.shape[0]
-#             w = self.message_lin(torch.cat((x_i,x_j),dim=-1))
-#             w = self.message_activation(w)
-#             w = torch.reshape(w, (E,self.out_channels,self.edge_channels))
-#             m_j = torch.bmm(w, edge_attr.unsqueeze(-1)).squeeze(-1)
-#         return m_j
-
-#     def update(self, aggr_out, x):
-#         # aggr_out has shape [N, out_channels]
-#         # x has shape [N, in_channels]
-#         aggr_out = self.update_activation(self.agg_lin(torch.cat((aggr_out, x),dim=-1)))
-#         if self.normalize_emb:
-#             aggr_out = F.normalize(aggr_out, p=2, dim=-1)
-#         return aggr_out
-
-
 class DilatedInception(nn.Module):
     def __init__(self, cin, cout, dilation_factor=2):
         super(DilatedInception, self).__init__()
@@ -954,70 +927,3 @@ class NoGCN(torch.nn.Module):
 
 
     
-# class HeteroFASTGCN(MyGraphSage):
-#     def __init__(
-#         self,node_num,seq_len, in_channels, hidden_channels, n_layers, out_channels=None,
-#         dropout=0, norm=None, act='relu',n_first=True, act_first=False, eps=0.9, **kwargs
-#     ):
-        
-#         self.node_num =node_num
-#         self.seq_len = seq_len
-#         self.n_first = n_first
-
-#         super().__init__(in_channels, hidden_channels, n_layers, out_channels, dropout, norm, act, act_first, eps, **kwargs)
-        
-#     def init_conv(self, in_channels, out_channels, **kwargs):
-        
-#         hetero_conv = HeteroConv({
-#             ('s', 's2t', 't'): STConv(in_channels, out_channels, eps=self.eps),
-#             ('t', 't2s', 's'): TSConv(in_channels, out_channels, eps=self.eps),
-#         }, aggr='sum')
-#         return hetero_conv
-#         # return FAConv(in_channels, out_channels, **kwargs)
-    
-#     def forward(self, x, edge_index, edge_attr=None):
-#         # x: B * (N+T) * C
-#         # edge_index: B,2,2*(N*T)
-#         # edge_attr: B*E or B * (N * T )
-
-#         for i in range(self.num_layers):
-#             xs = list()
-#             for bi in range(x.shape[0]):
-#                 edge_nt = torch.stack((
-#                     edge_index[bi][0][edge_index[bi][0] < self.node_num], # source
-#                     edge_index[bi][1][edge_index[bi][1] >= self.node_num] # target
-#                 ))
-#                 edge_tn = torch.stack((
-#                     edge_index[bi][0][edge_index[bi][0] >= self.node_num],
-#                     edge_index[bi][1][edge_index[bi][1] < self.node_num]
-#                 ))               
-
-#                 x_dict = {
-#                     's': x[bi][:self.node_num,:],
-#                     't': x[bi][self.node_num:,:]
-#                 }
-#                 edge_index_dict = {
-#                     ('s', 's2t', 't'): edge_nt,
-#                     ('t', 't2s', 's'): edge_tn,
-#                 }
-#                 out_dict = self.convs[i](x_dict,edge_index_dict )
-                
-#                 # combining spatial and temporal mixed information
-#                 xi = x[bi] + out_dict['s'] + out_dict['t']
-#                 # xi = self.convs[i](x[bi], edge_index[bi])
-#                 xs.append(xi)
-#             x = torch.stack(xs)
-#             if i == self.num_layers - 1:
-#                 break
-            
-#             if self.act_first:
-#                 x = self.act(x)
-#             if self.norms is not None:
-#                 x = self.norms[i](x)
-#             if not self.act_first:
-#                 x = self.act(x)
-            
-#             x = F.dropout(x, p=self.dropout, training=self.training)
-#         return x
-
-

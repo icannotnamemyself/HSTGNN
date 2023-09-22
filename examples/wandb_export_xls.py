@@ -57,8 +57,40 @@ MTGNN   ETTh2   24     mae         0.2188±0.0054
                        mae         0.2052±0.0065
 
 """
+# .loc[:,0] 去掉第一列索引 （0）
+result_df = df.unstack(0).loc[:,0]
 
-df.unstack(0).to_excel('result.xlsx')
+result_df.to_excel('result.xlsx')
+
+# 调整列宽
+
+from openpyxl import load_workbook
+result_df.to_excel('result.xlsx')
+# Step 1: 读取xlsx文件
+wb = load_workbook('./result.xlsx')
+
+# Step 2: 选择工作表（这里我们假设你要选择第一个工作表）
+ws = wb.active
+
+# Step 3: 调整列宽
+# Adjust column widths
+for column in ws.columns:
+    max_length = 0
+    column_letter = column[0].column_letter
+    for cell in column:
+        try:
+            if len(str(cell.value)) > max_length:
+                max_length = len(str(cell.value))
+        except:
+            pass
+    adjusted_width = (max_length + 2) * 1.2  # Adjust width formula
+    ws.column_dimensions[column_letter].width = adjusted_width
+
+# Step 4: 保存调整后的文件
+wb.save('./result.xlsx')
+
+
+
 """
 dataset                      Crossformer        DLinear FiLM            GRU       Informer     Informer-t          MTGNN NLinear TSMixer       TimesNet
 horizon metric model_type                                                                                                                              

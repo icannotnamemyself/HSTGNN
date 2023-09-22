@@ -1,7 +1,7 @@
 from ctypes import c_int
 import pytest
 import torch
-from torch_timeseries.nn.dialted_inception import DilatedInception
+from torch_timeseries.nn.dilated_inception import DilatedInception
 
 
 def test_dialted_inception():

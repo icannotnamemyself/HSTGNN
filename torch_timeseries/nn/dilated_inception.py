@@ -17,17 +17,7 @@ class DilatedInception(nn.Module):
             self.tconv.append(nn.Conv2d(cin,cout,(1,kern),dilation=(1,dilation_factor)))
 
     def forward(self,input):
-        """_summary_
 
-        Args:
-            input (_type_): nxnxnxn matrix where
-                - n: 
-                - p:
-                - 
-
-        Returns:
-            _type_: nxnxnxn
-        """
         x = []
         for i in range(len(self.kernel_set)):
             x.append(self.tconv[i](input))
@@ -37,6 +27,6 @@ class DilatedInception(nn.Module):
         return x
     
     
-    @property # TODO: 输出 膨胀卷积结果长度
+    # TODO: 输出 膨胀卷积结果长度
     def output_len():
         pass
