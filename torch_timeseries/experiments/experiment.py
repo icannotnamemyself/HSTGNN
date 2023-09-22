@@ -5,7 +5,6 @@ import os
 import random
 import time
 import hashlib
-from torch.cuda.amp import autocast, GradScaler
 from prettytable import PrettyTable
 import sys
 ####
