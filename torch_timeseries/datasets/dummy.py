@@ -19,6 +19,30 @@ from torch_timeseries.datasets.dataset import Freq, TimeSeriesDataset
 
 class Dummy(TimeSeriesDataset):
     name: str = 'dummy'
+    num_features:int = 8
+    sample_rate:int = 1
+    length : int= 1000
+    def download(self): 
+        pass
+    
+    def _load(self):
+        # 生成日期序列
+        dates = pd.date_range(start='2022-01-01', end='2022-01-02', freq='t')
+
+        # 创建一个数据矩阵
+        data = np.random.rand(len(dates), 2)
+
+        # 将时间列和数据矩阵拼接成一个numpy数组
+        result = np.concatenate([dates[:, np.newaxis], data], axis=1)
+
+        # 创建DataFrame，指定列名
+        self.df = pd.DataFrame(result, columns=['date', 'data1', 'data2'])
+        self.data = self.df.drop('date').values        
+        return self.data
+
+
+class DummyWithTime(TimeSeriesDataset):
+    name: str = 'dummy'
     num_features:int = 2
     freq : Freq = Freq.minutes
     length : int = 1440

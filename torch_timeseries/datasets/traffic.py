@@ -14,7 +14,7 @@ class Traffic(TimeSeriesDataset):
     """
     name:str= 'traffic'
     num_features: int = 862
-    sample_rate:int # in munites
+    sample_rate:int # in hours
     length : int = 17544
     windows : int = 168
     freq:str = 'h'

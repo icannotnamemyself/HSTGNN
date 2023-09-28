@@ -4,7 +4,7 @@ import pyChainedProxy as socks
 import torch
 import numpy as np
 import pandas as pd
-from torch_timeseries.datasets.dataset import Freq, TimeSeriesDataset
+from torch_timeseries.datasets.dataset import Freq, TimeSeriesDataset, TimeSeriesStaticGraphDataset
 
 
 
@@ -18,7 +18,7 @@ class DummyDataset(TimeSeriesDataset):
     
     def _load(self):
         # 生成日期序列
-        dates = pd.date_range(start='2022-01-01', end='2022-01-02', freq='t')
+        dates = pd.date_range(start='2022-01-01',periods=self.length, freq='t')
 
         # 创建一个数据矩阵
         data = np.random.rand(len(dates), 2)
@@ -29,6 +29,30 @@ class DummyDataset(TimeSeriesDataset):
         # 创建DataFrame，指定列名
         self.df = pd.DataFrame(result, columns=['date', 'data1', 'data2'])
         self.data = self.df.drop('date').values        
+        return self.data
+
+class DummyDatasetGraph(TimeSeriesStaticGraphDataset):
+    name: str = 'dummy_graph'
+    num_features:int = 2
+    freq : Freq = Freq.minutes
+    length : int = 1440
+    
+    def _load_static_graph(self):
+        self.adj = np.ones((self.num_features, self.num_features))
+    def download(self): 
+        pass
+    
+    def _load(self):
+        self._load_static_graph()
+        # 生成日期序列
+        dates = pd.date_range(start='2022-01-01',periods=self.length, freq='t')
+
+        # 创建一个数据矩阵
+        data = np.random.rand(len(dates), 2)
+        # 将时间列和数据矩阵拼接成一个numpy数组
+        self.df = pd.DataFrame({'date': dates, 'data1': data[:, 0],'data2': data[:, 1]})
+        self.dates = pd.DataFrame({'date':self.df.date})
+        self.data = self.df.drop('date', axis=1).values        
         return self.data
 
 
@@ -42,7 +66,7 @@ class DummyDatasetWithTime(TimeSeriesDataset):
     
     def _load(self):
         # 生成日期序列
-        dates = pd.date_range(start='2022-01-01', end='2022-01-02', freq='t')
+        dates = pd.date_range(start='2022-01-01',periods=self.length, freq='t')
 
         # 创建一个数据矩阵
         data = np.random.rand(len(dates), 2)
@@ -56,6 +80,10 @@ class DummyDatasetWithTime(TimeSeriesDataset):
 @pytest.fixture(scope='session')
 def dummy_dataset():
     return DummyDataset('./data')
+
+@pytest.fixture(scope='session')
+def dummy_dataset_graph():
+    return DummyDatasetGraph('./data')
 
 @pytest.fixture(scope='session')
 def dummy_dataset_time():

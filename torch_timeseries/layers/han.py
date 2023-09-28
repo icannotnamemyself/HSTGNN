@@ -33,6 +33,7 @@ class HAN(nn.Module):
         n_first=True,
         act_first=False,
         eps=0.9,
+        conv_type='all', # homo, hetero
         **kwargs
     ):
         self.node_num = node_num
@@ -47,7 +48,7 @@ class HAN(nn.Module):
         
         self.heads = heads
         self.negative_slope = negative_slope
-
+        self.conv_type = conv_type
         self.dropout = dropout
         self.act = activation_resolver.make(act)
         self.act_first = act_first
@@ -127,16 +128,32 @@ class HAN(nn.Module):
 
                 
                 # convert edge index to edge index dict
+                    
                 edge_tt = edge_tt - self.node_num 
                 edge_nt[1, :] = edge_nt[1, :] - self.node_num
                 edge_tn[0, :] = edge_tn[0, :] - self.node_num
+                edge_index_dict = {}
+                if self.conv_type == 'all':
+                    edge_index_dict = {
+                        ("s", "s2s", "s"): edge_nn,
+                        ("t", "t2t", "t"): edge_tt,
+                        ("s", "s2t", "t"): edge_nt,
+                        ("t", "t2s", "s"): edge_tn,
+                    }
+                elif self.conv_type == 'homo':
+                    
+                    edge_index_dict = {
+                        ("s", "s2s", "s"): edge_nn,
+                        ("t", "t2t", "t"): edge_tt,
+                    }
 
-                edge_index_dict = {
-                    ("s", "s2s", "s"): edge_nn,
-                    ("t", "t2t", "t"): edge_tt,
-                    ("s", "s2t", "t"): edge_nt,
-                    ("t", "t2s", "s"): edge_tn,
-                }
+                elif self.conv_type == 'hetero':
+                    edge_index_dict = {
+                        ("s", "s2t", "t"): edge_nt,
+                        ("t", "t2s", "s"): edge_tn,
+                    }
+                else:
+                    raise NotImplementedError("conv_type must be 'all', 'homo' or 'heter'")
                 out_dict = self.convs[i](x_dict, edge_index_dict)
                 xi = torch.concat([out_dict["s"], out_dict["t"]], dim=0)
                 xs.append(xi)

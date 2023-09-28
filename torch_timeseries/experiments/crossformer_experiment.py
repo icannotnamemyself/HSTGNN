@@ -13,7 +13,6 @@ from torch_timeseries.experiments.experiment import Experiment
 from torch_timeseries.nn.crossformer import Crossformer
 from torch_timeseries.nn.metric import TrendAcc, R2, Corr
 from torch.nn import MSELoss, L1Loss
-from omegaconf import OmegaConf
 from torchmetrics import MetricCollection, R2Score, MeanSquaredError
 from torch.utils.data import Dataset, DataLoader, RandomSampler, Subset
 

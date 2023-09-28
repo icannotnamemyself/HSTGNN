@@ -5,7 +5,11 @@ from torch_timeseries.datasets.dataloader import ChunkSequenceTimefeatureDataLoa
 def test_dataloader():
     dataloader = ChunkSequenceTimefeatureDataLoader(
         ETTh1(),
-        scaler=StandarScaler()
+        scaler=StandarScaler(),
+        steps=2
     )
     
     
+    
+    for x, y, x_enc_date, y_enc_date in dataloader.train_loader:
+        continue

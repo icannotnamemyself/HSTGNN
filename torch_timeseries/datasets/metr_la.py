@@ -1,4 +1,5 @@
 import os
+import pickle
 import resource
 from.dataset import Dataset, Freq, TimeSeriesDataset, TimeSeriesStaticGraphDataset
 from typing import Any, Callable, List, Optional
@@ -7,6 +8,7 @@ from torchvision.datasets.utils import download_url, download_and_extract_archiv
 import pandas as pd
 import numpy as np
 import torch.utils.data
+from torch_timeseries.utils.load_pickle import load_pickle
 
 
 
@@ -27,6 +29,7 @@ class METR_LA(TimeSeriesStaticGraphDataset):
         pass
         
     def _load(self) -> np.ndarray:
+        self._load_static_graph()
         self.file_path = os.path.join(self.dir, 'metr-la.h5')
         self.df = pd.read_hdf(self.file_path)
         self.df.index = self.df.index.map(lambda x: pd.Timestamp(str(x)))
@@ -35,3 +38,6 @@ class METR_LA(TimeSeriesStaticGraphDataset):
         return self.data
     
     
+    def _load_static_graph(self):
+        self.adj = load_pickle(os.path.join(self.dir, 'adj_mx.pkl'))[2]
+        

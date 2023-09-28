@@ -6,7 +6,7 @@ import torch
 from tqdm import tqdm
 from torch_timeseries.data.scaler import *
 from torch_timeseries.datasets import *
-from torch_timeseries.datasets.dataset import TimeSeriesDataset
+from torch_timeseries.datasets.dataset import TimeSeriesDataset, TimeSeriesStaticGraphDataset
 from torch_timeseries.datasets.splitter import SequenceSplitter
 from torch_timeseries.datasets.wrapper import MultiStepTimeFeatureSet
 from torch_timeseries.experiments.experiment import Experiment
@@ -53,15 +53,21 @@ class BiSTGNNv2Experiment(Experiment):
     without_gcn:bool = False
     
     def _init_model(self):
+        predefined_NN_adj = None
+        if isinstance(self.dataset, TimeSeriesStaticGraphDataset) and self.pred_len > 1:
+            predefined_NN_adj = self.dataset.adj
+        if isinstance(self.dataset, TimeSeriesStaticGraphDataset) and self.pred_len > 1:
+            assert predefined_NN_adj is not None
+            
+            
         self.model = BiSTGNNv2(
             seq_len=self.windows,
             num_nodes=self.dataset.num_features,
             temporal_embed_dim=4, # 4 for hour embedding
             latent_dim=self.latent_dim,
-            
+            predefined_NN_adj=predefined_NN_adj,
             heads=self.heads,
             negative_slope=self.negative_slope,
-
             gcn_layers=self.gcn_layers,
             dropout=self.dropout,
             graph_build_type=self.graph_build_type,
@@ -69,6 +75,7 @@ class BiSTGNNv2Experiment(Experiment):
             tn_layers=self.tn_layers,
             rebuild_time=self.rebuild_time,
             rebuild_space=self.rebuild_space,
+            out_seq_len=self.pred_len,
             node_static_embed_dim=self.node_static_embed_dim,
             tcn_layers=self.tcn_layers,
             dilated_factor=self.dilated_factor,
@@ -92,7 +99,7 @@ class BiSTGNNv2Experiment(Experiment):
         batch_x = batch_x.transpose(1,2)
         outputs = self.model(batch_x,batch_x_date_enc)  # torch.Size([batch_size, num_nodes])
         # single step prediction
-        return outputs.reshape(batch_size, self.dataset.num_features), batch_y.reshape(batch_size, self.dataset.num_features)
+        return outputs, batch_y
 
 
 def main():

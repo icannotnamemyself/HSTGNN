@@ -99,7 +99,7 @@ class TimeSeriesDataset(Dataset):
 
 
 class TimeSeriesStaticGraphDataset(TimeSeriesDataset):
-
+    adj : np.ndarray 
     def _load_static_graph(self):
         raise NotImplementedError()
 

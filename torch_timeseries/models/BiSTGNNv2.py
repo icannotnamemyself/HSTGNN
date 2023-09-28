@@ -13,7 +13,7 @@ class BiSTGNNv2(nn.Module):
         seq_len,
         num_nodes,
         temporal_embed_dim,
-        graph_build_type="adaptive",
+        graph_build_type="adaptive", # "predefined_adaptive"
         graph_conv_type="han",
         heads=1,
         negative_slope=0.2,
@@ -26,7 +26,9 @@ class BiSTGNNv2(nn.Module):
         tcn_layers=3,
         dilated_factor=2,
         tcn_channel=16,
+        out_seq_len=1,
         dropout=0.0,
+        predefined_NN_adj=None,
         act='elu'
     ):
         super(BiSTGNNv2, self).__init__()
@@ -37,6 +39,8 @@ class BiSTGNNv2(nn.Module):
         self.tn_layers = tn_layers
         self.heads = heads
         self.negative_slope = negative_slope
+        self.out_seq_len = out_seq_len
+        
 
         self.spatial_encoder = SpatialEncoder(
             seq_len,
@@ -80,6 +84,7 @@ class BiSTGNNv2(nn.Module):
                     negative_slope=self.negative_slope,
                     dropout=dropout,
                     act=act,
+                    predefined_NN_adj=predefined_NN_adj
                 )
             )
 
@@ -91,7 +96,7 @@ class BiSTGNNv2(nn.Module):
 
         self.output_layer = TCNOuputLayer(
             input_seq_len=seq_len,
-            out_seq_len=1,
+            out_seq_len=self.out_seq_len,
             tcn_layers=tcn_layers,
             dilated_factor=dilated_factor,
             in_channel=out_channels,
@@ -132,7 +137,8 @@ class BiSTGNNv2(nn.Module):
 class TNModule(nn.Module):
     def __init__(
         self, num_nodes, seq_len, latent_dim, gcn_layers, graph_build_type="adaptive",
-        graph_conv_type='fastgcn5',heads=1,negative_slope=0.2,dropout=0.0,act='elu'
+        graph_conv_type='fastgcn5',heads=1,negative_slope=0.2,dropout=0.0,act='elu',
+        predefined_NN_adj=None
     ) -> None:
         super().__init__()
 
@@ -145,7 +151,10 @@ class TNModule(nn.Module):
 
         if graph_build_type == "adaptive":
             self.graph_constructor = STGraphConstructor()
-            
+        elif graph_build_type == "predefined_adaptive":
+            assert predefined_NN_adj is not None, "predefined_NN_adj must be provided"
+            self.graph_constructor = STGraphConstructor(predefined_NN_adj)
+
         if graph_conv_type == 'fastgcn5':
             self.graph_conv = HeteroFASTGCN5(
                 num_nodes, seq_len, latent_dim, latent_dim, gcn_layers, dropout=0,act='elu'
@@ -159,6 +168,20 @@ class TNModule(nn.Module):
                 num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
                 heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act
             )
+        elif graph_conv_type == 'han_homo':
+            self.graph_conv = HAN(
+                num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
+                heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
+                conv_type='homo'
+            )
+        elif graph_conv_type == 'han_hetero':
+            self.graph_conv = HAN(
+                num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
+                heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
+                conv_type='hetero'
+            )
+        else:
+            raise NotImplementedError("Unknown graph_conv")
         self.graph_embedding = GraphEmbeeding(latent_dim=latent_dim)
 
     def forward(self, X):
@@ -255,9 +278,12 @@ class TemporalEncoder(nn.Module):
 
 
 class STGraphConstructor(nn.Module):
-    def __init__(self):
+    def __init__(self, predefined_NN_adj=None):
         super(STGraphConstructor, self).__init__()
-
+        if predefined_NN_adj is not None:
+            self.predefined_NN_adj = torch.tensor(predefined_NN_adj, dtype=torch.int8)
+        else:
+            self.predefined_NN_adj = None
     def forward(
         self, spatial_nodes, temporal_nodes
     ) -> Tuple[torch.Tensor, List[torch.Tensor], List[torch.Tensor]]:
@@ -269,12 +295,19 @@ class STGraphConstructor(nn.Module):
 
         node_embs = torch.concat([spatial_nodes, temporal_nodes], dim=1)
         adj = torch.relu(torch.einsum("bnf, bmf -> bnm", node_embs, node_embs))
-        # add self loop
+        
+        # predefined adjcent matrix        
+        if self.predefined_NN_adj is not None:
+            adj[:, :N, :N] = self.predefined_NN_adj.repeat(B, 1, 1)
 
+        
+        # add self loop
         # Create a unit matrix and expand its dimensions to match the dimensions of x
         eye = torch.eye(N+T,N+T).to(adj.device)  # Ensure the unit matrix is on the same device as x
         eye_expanded = eye.unsqueeze(0).repeat(B, 1, 1)  # Expand the unit matrix to shape (B, N, N)
         adj = torch.tanh(adj + eye_expanded)
+        
+        
 
         batch_indices = list()
         batch_values = list()

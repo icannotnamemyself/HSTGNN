@@ -30,6 +30,7 @@ class MultiStepTimeFeatureSet(Dataset):
         self.scaled_data = self.scaler.transform(self.dataset.data)
         self.date_enc_data = time_features(
             self.dataset.dates, self.time_enc, self.freq)
+        assert len(self.dataset) - self.window - self.horizon + 1 - self.steps + 1 > 0, "Dataset is not long enough!!!"
 
 
     def transform(self, values):

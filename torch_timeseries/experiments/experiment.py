@@ -11,7 +11,7 @@ import sys
 from typing import Dict, List, Type, Union
 import numpy as np
 import torch
-from torchmetrics import MeanSquaredError, MetricCollection, MeanAbsoluteError
+from torchmetrics import MeanSquaredError, MetricCollection, MeanAbsoluteError, MeanAbsolutePercentageError
 from tqdm import tqdm
 import wandb
 from torch_timeseries.data.scaler import *
@@ -121,7 +121,7 @@ class Experiment(Settings):
         run = wandb.init(
             project=project,
             name=name,
-            tags=[self.model_type, self.dataset_type, f"horizon-{self.horizon}", f"window-{self.windows}"],
+            tags=[self.model_type, self.dataset_type, f"horizon-{self.horizon}", f"window-{self.windows}", f"pred-{self.pred_len}"],
         )
         wandb.config.update(asdict(self))
         self.wandb = True
@@ -164,8 +164,8 @@ class Experiment(Settings):
         loss_func_map = {"mse": MSELoss, "l1": L1Loss}
         self.loss_func = loss_func_map[self.loss_func_type]()
 
-    def _init_metrics(self, task_name):
-        if task_name == Task.SingleStepForecast:
+    def _init_metrics(self):
+        if self.pred_len == 1:
             self.metrics = MetricCollection(
                 metrics={
                     "r2": R2(self.dataset.num_features, multioutput="uniform_average"),
@@ -177,11 +177,12 @@ class Experiment(Settings):
                     "mae": MeanAbsoluteError(),
                 }
             )
-        elif task_name == Task.MultiStepForecast:
+        elif self.pred_len > 1:
             self.metrics = MetricCollection(
                 metrics={
                     "mse": MeanSquaredError(),
                     "mae": MeanAbsoluteError(),
+                    "mape": MeanAbsolutePercentageError(),
                 }
             )
 
@@ -286,12 +287,12 @@ class Experiment(Settings):
     def _init_model(self):
         self.model = self._parse_type(self.model_type)().to(self.device)
 
-    def _setup(self, task_name=Task.SingleStepForecast):
+    def _setup(self):
         # init data loader
         self._init_data_loader()
 
         # init metrics
-        self._init_metrics(task_name)
+        self._init_metrics()
 
         # init loss function based on given loss func type
         self._init_loss_func()
@@ -424,22 +425,57 @@ class Experiment(Settings):
     def _process_one_batch(self, batch_x, batch_y, batch_x_date_enc, batch_y_date_enc):
         # inputs:
             # batch_x:  (B, T, N)
-            # batch_y:  (B, T, Steps)
+            # batch_y:  (B, Steps,T)
             # batch_x_date_enc:  (B, T, N)
             # batch_y_date_enc:  (B, T, Steps)
             
         # outputs:
             # pred: (B, O, N)
             # label:  (B,O,N)
+        # for single step you should output (B, N)
+        # for multiple steps you should output (B, O, N)
         raise NotImplementedError()
-    
-    
+
+    def _evaluate(self, dataloader):
+        self.model.eval()
+        self.metrics.reset()
+        
+        length = 0
+        if dataloader is self.train_loader:
+            length = self.dataloader.train_size
+        elif dataloader is self.val_loader:
+            length = self.dataloader.val_size
+        elif dataloader is self.test_loader:
+            length = self.dataloader.test_size
+
+        # y_truths = []
+        # y_preds = []
+        with torch.no_grad():
+            with tqdm(total=length) as progress_bar:
+                for batch_x, batch_y, batch_x_date_enc, batch_y_date_enc in dataloader:
+                    batch_size = batch_x.size(0)
+                    preds, truths = self._process_one_batch(
+                        batch_x, batch_y, batch_x_date_enc, batch_y_date_enc
+                    )
+                    # the result should be the same
+                    # self.metrics.update(preds.view(batch_size, -1), truths.view(batch_size, -1))
+                    if self.pred_len == 1:
+                        self.metrics.update(preds.view(batch_size, -1), truths.view(batch_size, -1))
+                    else:
+                        self.metrics.update(preds.contiguous(), truths.contiguous())
+
+                    progress_bar.update(batch_x.shape[0])
+
+            result = {
+                name: float(metric.compute()) for name, metric in self.metrics.items()
+            }
+        return result
+
     
     
     def _test(self) -> Dict[str, float]:
         print("Testing .... ")
-        
-        test_result = self.__evalutate_single_step(self.test_loader)
+        test_result = self._evaluate(self.test_loader)
         
         if self._use_wandb():
             for name, metric_value in test_result.items():
@@ -462,18 +498,57 @@ class Experiment(Settings):
 
         # y_truths = []
         # y_preds = []
-        with tqdm(total=length) as progress_bar:
-            for batch_x, batch_y, batch_x_date_enc, batch_y_date_enc in dataloader:
-                batch_size = batch_x.size(0)
-                preds, truths = self._process_one_batch(
-                    batch_x, batch_y, batch_x_date_enc, batch_y_date_enc
-                )
-                self.metrics.update(preds.view(batch_size, -1), truths.view(batch_size, -1))
-                progress_bar.update(batch_x.shape[0])
+        with torch.no_grad():
+            with tqdm(total=length) as progress_bar:
+                for batch_x, batch_y, batch_x_date_enc, batch_y_date_enc in dataloader:
+                    batch_size = batch_x.size(0)
+                    preds, truths = self._process_one_batch(
+                        batch_x, batch_y, batch_x_date_enc, batch_y_date_enc
+                    )
+                    self.metrics.update(preds.view(batch_size, -1), truths.view(batch_size, -1))
 
-        result = {
-            name: float(metric.compute()) for name, metric in self.metrics.items()
-        }
+                    # the result should be the same
+                    # if self.pred_len == 1:
+                    #     self.metrics.update(preds.view(batch_size, -1), truths.view(batch_size, -1))
+                    # else:
+                    #     self.metrics.update(preds, truths)
+
+                    progress_bar.update(batch_x.shape[0])
+
+            result = {
+                name: float(metric.compute()) for name, metric in self.metrics.items()
+            }
+        return result
+
+    def __evalutate_multiple_step(self, dataloader:DataLoader):
+        self.model.eval()
+        self.metrics.reset()
+        
+        length = 0
+        if dataloader is self.train_loader:
+            length = self.dataloader.train_size
+        elif dataloader is self.val_loader:
+            length = self.dataloader.val_size
+        elif dataloader is self.test_loader:
+            length = self.dataloader.test_size
+
+        # y_truths = []
+        # y_preds = []
+        with torch.no_grad():
+            with tqdm(total=length) as progress_bar:
+                for batch_x, batch_y, batch_x_date_enc, batch_y_date_enc in dataloader:
+                    # batch_y : (B, O ,N)
+                    # batch_y_date_enc : (B, O ,D)
+                    batch_size = batch_x.size(0)
+                    preds, truths = self._process_one_batch(
+                        batch_x, batch_y, batch_x_date_enc, batch_y_date_enc
+                    )
+                    self.metrics.update(preds.view(batch_size, -1), truths.view(batch_size, -1))
+                    progress_bar.update(batch_x.shape[0])
+
+            result = {
+                name: float(metric.compute()) for name, metric in self.metrics.items()
+            }
         # print(f"wjn corr: {compute_corr(y_truths, y_preds)}")
         # print(f"wjn r2: {compute_r2(y_truths, y_preds, aggr_mode='uniform_average')}")
         # print(
@@ -482,10 +557,9 @@ class Experiment(Settings):
         # compute_r2
         return result
 
-
-    def _evaluate(self):
+    def _val(self):
         print("Evaluating .... ")
-        val_result = self.__evalutate_single_step(self.val_loader)
+        val_result = self._evaluate(self.val_loader)
 
         if self._use_wandb():
             for name, metric_value in val_result.items():
@@ -508,7 +582,6 @@ class Experiment(Settings):
                 pred, true = self._process_one_batch(
                     batch_x, batch_y, batch_x_date_enc, batch_y_date_enc
                 )
-
                 if self.invtrans_loss:
                     pred = self.scaler.inverse_transform(pred)
                     batch_y = self.scaler.inverse_transform(batch_y)
@@ -614,8 +687,8 @@ class Experiment(Settings):
                 )
             )
 
-            # evaluate on vali set
-            result = self._evaluate()
+            # evaluate on val set
+            result = self._val()
 
             self.current_epoch = self.current_epoch + 1
             self.early_stopper(result[self.loss_func_type], model=self.model)
@@ -644,7 +717,7 @@ class Experiment(Settings):
             print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
 
             # evaluate on vali set
-            self._evaluate()
+            self._val()
 
             self._save(seed=seed)
 
