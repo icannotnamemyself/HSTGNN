@@ -154,6 +154,9 @@ class TNModule(nn.Module):
         elif graph_build_type == "predefined_adaptive":
             assert predefined_NN_adj is not None, "predefined_NN_adj must be provided"
             self.graph_constructor = STGraphConstructor(predefined_NN_adj)
+        elif graph_build_type == "fully_connected":
+            self.graph_constructor = STGraphConstructor(predefined_NN_adj=None, adaptive=False)
+            print("graph_build_type is fully_connected")
 
         if graph_conv_type == 'fastgcn5':
             self.graph_conv = HeteroFASTGCN5(
@@ -278,12 +281,14 @@ class TemporalEncoder(nn.Module):
 
 
 class STGraphConstructor(nn.Module):
-    def __init__(self, predefined_NN_adj=None):
+    def __init__(self, predefined_NN_adj=None, adaptive=True):
         super(STGraphConstructor, self).__init__()
         if predefined_NN_adj is not None:
             self.predefined_NN_adj = torch.tensor(predefined_NN_adj, dtype=torch.int8)
         else:
             self.predefined_NN_adj = None
+            
+        self.adaptive =adaptive
     def forward(
         self, spatial_nodes, temporal_nodes
     ) -> Tuple[torch.Tensor, List[torch.Tensor], List[torch.Tensor]]:
@@ -294,18 +299,22 @@ class STGraphConstructor(nn.Module):
         _, T, _ = temporal_nodes.size()
 
         node_embs = torch.concat([spatial_nodes, temporal_nodes], dim=1)
-        adj = torch.relu(torch.einsum("bnf, bmf -> bnm", node_embs, node_embs))
         
-        # predefined adjcent matrix        
-        if self.predefined_NN_adj is not None:
-            adj[:, :N, :N] = self.predefined_NN_adj.repeat(B, 1, 1)
+        if not self.adaptive:
+            adj = torch.ones(B, N+T, N+T).to(node_embs.device)
+        else:
+            adj = torch.relu(torch.einsum("bnf, bmf -> bnm", node_embs, node_embs))
+            
+            # predefined adjcent matrix        
+            if self.predefined_NN_adj is not None:
+                adj[:, :N, :N] = self.predefined_NN_adj.repeat(B, 1, 1)
 
-        
-        # add self loop
-        # Create a unit matrix and expand its dimensions to match the dimensions of x
-        eye = torch.eye(N+T,N+T).to(adj.device)  # Ensure the unit matrix is on the same device as x
-        eye_expanded = eye.unsqueeze(0).repeat(B, 1, 1)  # Expand the unit matrix to shape (B, N, N)
-        adj = torch.tanh(adj + eye_expanded)
+            
+            # add self loop
+            # Create a unit matrix and expand its dimensions to match the dimensions of x
+            eye = torch.eye(N+T,N+T).to(adj.device)  # Ensure the unit matrix is on the same device as x
+            eye_expanded = eye.unsqueeze(0).repeat(B, 1, 1)  # Expand the unit matrix to shape (B, N, N)
+            adj = torch.tanh(adj + eye_expanded)
         
         
 

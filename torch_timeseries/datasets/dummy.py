@@ -15,7 +15,7 @@ from torch_timeseries.data.scaler import MaxAbsScaler, Scaler, StoreType
 
 from enum import Enum, unique
 
-from torch_timeseries.datasets.dataset import Freq, TimeSeriesDataset
+from torch_timeseries.datasets.dataset import Freq, TimeSeriesDataset, TimeSeriesStaticGraphDataset
 
 class Dummy(TimeSeriesDataset):
     name: str = 'dummy'
@@ -38,6 +38,38 @@ class Dummy(TimeSeriesDataset):
         # 创建DataFrame，指定列名
         self.df = pd.DataFrame(result, columns=['date', 'data1', 'data2'])
         self.data = self.df.drop('date').values        
+        return self.data
+
+
+class DummyDatasetGraph(TimeSeriesStaticGraphDataset):
+    name: str = 'dummy_graph'
+    num_features:int = 5
+    freq : Freq = Freq.minutes
+    length : int = 1440
+    
+    def _load_static_graph(self):
+        self.adj = np.ones((self.num_features, self.num_features))
+    def download(self): 
+        pass
+    
+    def _load(self):
+        self._load_static_graph()
+        # 生成日期序列
+        dates = pd.date_range(start='2022-01-01',periods=self.length, freq='t')
+
+        # 创建一个数据矩阵
+        data = np.random.rand(len(dates), self.num_features)
+        # 将时间列和数据矩阵拼接成一个numpy数组
+        result = {'date': dates}
+        # iterate to get above df
+        # 循环遍历每一列数据并添加到字典
+        for i in range(data.shape[1]):  # 假设 data 是一个 NumPy 数组
+            key = f'data{i+1}'  # 创建键，例如 'data1', 'data2', ...
+            result[key] = data[:, i]  # 添加数据到字典
+        self.df = pd.DataFrame(result)
+
+        self.dates = pd.DataFrame({'date':self.df.date})
+        self.data = self.df.drop('date', axis=1).values        
         return self.data
 
 

@@ -265,7 +265,7 @@ class LaST(nn.Module):
         else:
             if x_mark is not None:
                 x_his = torch.cat([x_his, x_mark], dim=-1)
-
+        import pdb; pdb.set_trace()
         x_s, x_t, elbo, mlbo, mubo = self.LaSTLayer(x_his)
         x_pred = x_s + x_t
         x_pred = x_pred.squeeze(-1) if self.v_num > 1 else x_pred

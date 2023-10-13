@@ -6,14 +6,13 @@ import torch
 from tqdm import tqdm
 from torch_timeseries.data.scaler import *
 from torch_timeseries.datasets import *
-from torch_timeseries.datasets.dataset import TimeSeriesDataset
+from torch_timeseries.datasets.dataset import TimeSeriesDataset, TimeSeriesStaticGraphDataset
 from torch_timeseries.datasets.splitter import SequenceSplitter
 from torch_timeseries.datasets.wrapper import MultiStepTimeFeatureSet
 from torch_timeseries.experiments.experiment import Experiment
 from torch_timeseries.nn.mtgnn import MTGNN
 from torch_timeseries.nn.metric import TrendAcc, R2, Corr
 from torch.nn import MSELoss, L1Loss
-from omegaconf import OmegaConf
 from torchmetrics import MetricCollection, R2Score, MeanSquaredError
 from torch.utils.data import Dataset, DataLoader, RandomSampler, Subset
 
@@ -53,13 +52,17 @@ class MTGNNExperiment(Experiment):
         assert (
             self.subgraph_size <= self.dataset.num_features
         ), f"graph size {self.subgraph_size} have to be small than data columns :{self.dataset.num_features}"
+        predefined_A = None
+        if self.pred_len > 1 and isinstance(self.dataset, TimeSeriesStaticGraphDataset):
+            predefined_A = self.dataset.adj
+            
         self.model = MTGNN(
             gcn_true=self.gcn_true,
             buildA_true=True,
             gcn_depth=self.gcn_depth,
             num_nodes=self.dataset.num_features,
             device=self.device,
-            predefined_A=None,
+            predefined_A=predefined_A,
             static_feat=None,
             dropout=self.dropout,
             subgraph_size=self.subgraph_size,
@@ -95,7 +98,11 @@ class MTGNNExperiment(Experiment):
         )  # torch.Size([batch_size, 1, num_nodes, windows])
         outputs = self.model(input_x)  # torch.Size([batch_size, seq_len, num_nodes, 1])
         outputs = outputs.squeeze(3)
-        return outputs.squeeze(1), batch_y.squeeze(1)
+        
+        if self.pred_len == 1:
+            return outputs.squeeze(1), batch_y.squeeze(1)
+        elif self.pred_len > 1:
+            return outputs, batch_y
 
 
 # def main():

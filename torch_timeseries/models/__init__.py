@@ -12,3 +12,7 @@ from .DeepTIMe import DeepTIMe
 from .TNTCN import TNTCN
 from .BiSTGNNv1 import BiSTGNN
 from .BiSTGNNv2 import BiSTGNNv2
+from .BiSTGNNv3 import BiSTGNNv3
+from .BiSTGNNv4 import BiSTGNNv4
+from .BiSTGNNv5 import BiSTGNNv5
+from .BiSTGNNv6 import BiSTGNNv6

@@ -70,7 +70,7 @@ class SolarEnergy(TimeSeriesDataset):
         self.file_path = os.path.join(self.dir, self.file_name)
         self.df = pd.read_csv(self.file_path, sep=',', header=None) # pd.read_csv(self.file_path, parse_dates=["LocalTime"])
         # self.df = df.rename(columns={"LocalTime": "date"})
-        self.df['date'] = pd.date_range(start='01/01/2006 00:00', periods=self.length, freq='5T')  # '5T' 是5分钟的意思
+        self.df['date'] = pd.date_range(start='01/01/2006 00:00', periods=self.length, freq='10T')  # '5T' 是5分钟的意思
         self.dates =  pd.DataFrame({'date': self.df['date'] })
         self.data = self.df.drop("date", axis=1).values
         return self.data

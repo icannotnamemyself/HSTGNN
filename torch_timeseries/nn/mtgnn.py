@@ -105,8 +105,6 @@ class MTGNN(nn.Module):
         if self.seq_length<self.receptive_field:
             input = nn.functional.pad(input,(self.receptive_field-self.seq_length,0,0,0))
 
-
-
         if self.gcn_true:
             if self.buildA_true:
                 if idx is None:

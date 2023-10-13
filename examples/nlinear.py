@@ -14,14 +14,15 @@ def main():
         device="cuda:2",
         horizons=horizons,
         datasets=[
-            ("METR_LA", 288),
-            ("PEMS_BAY", 288),
-            ("ETTm1", 384),
-            ("ETTm2", 384),
-            ("ETTh1", 384),
-            ("ETTh2", 384),
-            ("ExchangeRate", 96),
-            ("Weather", 168),
+            # ("METR_LA", 288),
+            # ("PEMS_BAY", 288),
+            # ("ETTm1", 384),
+            # ("ETTm2", 384),
+            # ("ETTh1", 384),
+            # ("ETTh2", 384),
+            # ("ExchangeRate", 96),
+            # ("Weather", 168),
+            ("SolarEnergy", 168), 
         ]
     )
 

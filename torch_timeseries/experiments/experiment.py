@@ -588,7 +588,6 @@ class Experiment(Settings):
                 else:
                     pred = pred
                     batch_y = batch_y
-                
                 loss = self.loss_func(pred, true)
                 loss.backward()
 

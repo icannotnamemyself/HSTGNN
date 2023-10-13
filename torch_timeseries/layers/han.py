@@ -56,9 +56,9 @@ class HAN(nn.Module):
 
         self.out_channels = hidden_channels
 
-        assert (
-            n_layers >= 2
-        ), "intra and inter conv layers must greater than or equals to 2 "
+        # assert (
+        #     n_layers >= 2
+        # ), "intra and inter conv layers must greater than or equals to 2 "
 
         
         # 定义元路径

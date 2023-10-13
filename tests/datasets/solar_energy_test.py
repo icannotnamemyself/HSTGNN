@@ -15,7 +15,9 @@ def test_solar_energy():
 def test_dataloader():
     dataloader = ChunkSequenceTimefeatureDataLoader(
         SolarEnergy(),
-        scaler=StandarScaler()
+        scaler=StandarScaler(),
+        horizon=3,
+        window=168
     )
     
     

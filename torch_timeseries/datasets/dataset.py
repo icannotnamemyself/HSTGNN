@@ -73,7 +73,8 @@ class TimeSeriesDataset(Dataset):
         self._process()
         self._load()
         
-        self.dates: pd.DataFrame
+        self.dates: Optional[pd.DataFrame ]
+        
 
     @abstractmethod
     def download(self):

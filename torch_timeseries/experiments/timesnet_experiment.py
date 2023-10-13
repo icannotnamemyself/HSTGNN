@@ -14,7 +14,6 @@ from torch_timeseries.datasets.wrapper import MultiStepTimeFeatureSet
 from torch_timeseries.experiments.experiment import Experiment
 from torch_timeseries.models import TimesNet
 from torch.nn import MSELoss, L1Loss
-from omegaconf import OmegaConf
 
 from torch.optim import Optimizer, Adam
 

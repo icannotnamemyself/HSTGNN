@@ -55,7 +55,7 @@ class TCN(nn.Module):
         """
         batch, _, n_nodes, seq_len = x.shape
         assert seq_len == self.seq_len
-
+        
         if seq_len < self.min_input_len:
             x = nn.functional.pad(x, (self.min_input_len - seq_len, 0, 0, 0))
 

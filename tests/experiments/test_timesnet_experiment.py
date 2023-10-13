@@ -1,8 +1,6 @@
 from torch_timeseries.experiments.timesnet_experiment import TimesNetExperiment
 
 
-
-
 def test_experiment():
     
     exp = TimesNetExperiment(

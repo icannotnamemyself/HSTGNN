@@ -60,7 +60,8 @@ def test_bistgnn_multistep(dummy_dataset_time: TimeSeriesDataset):
             dummy_dataset_time.num_features,
             temporal_embed_dim=5,
             graph_conv_type='han',
-            out_seq_len=24
+            out_seq_len=24,
+            tn_layers=2
             
     )
     model = model.to(device)

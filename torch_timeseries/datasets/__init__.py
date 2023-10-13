@@ -1,4 +1,4 @@
-from .dummy import Dummy,DummyWithTime
+from .dummy import Dummy,DummyWithTime,DummyDatasetGraph
 from .traffic import Traffic
 from .exchange_rate import ExchangeRate
 from .solar_energy import SolarEnergy
@@ -12,6 +12,7 @@ from .ETTm2 import ETTm2
 from .dummy import Dummy
 from .metr_la import METR_LA
 from .pems_bay import PEMS_BAY
+from .pems_D7 import PeMS_D7
 
 
 # __all__ = [

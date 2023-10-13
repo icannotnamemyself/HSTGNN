@@ -11,15 +11,16 @@ from torch_timeseries.experiments.dlinear_experiment import DLinearExperiment
 def main():
     horizons = [3,6,12,24]
     config = Config(
-        device="cuda:2",
+        device="cuda:0",
         horizons=horizons,
         datasets=[
-            ("ETTm1", 384),
-            ("ETTm2", 384),
-            ("ETTh1", 384),
-            ("ETTh2", 384),
-            ("ExchangeRate", 96),
-            ("Weather", 168),
+            # ("ETTm1", 384),
+            # ("ETTm2", 384),
+            # ("ETTh1", 384),
+            # ("ETTh2", 384),
+            # ("ExchangeRate", 96),
+            # ("Weather", 168),
+            ("SolarEnergy", 168), # OOM
             ("METR_LA", 288),
             ("PEMS_BAY", 288),
         ]
