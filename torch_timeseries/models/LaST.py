@@ -173,7 +173,6 @@ class LaSTBlock(nn.Module):
         elbo = elbo_t + elbo_s - rec_err
         mlbo = mlbo_t + mlbo_s
         mubo = self.MuboNet(x_his, self.SNet.VarUnit_s, self.TNet.VarUnit_t)
-
         return x_s, x_t, elbo, mlbo, mubo
 
 
@@ -196,8 +195,7 @@ class SNet(nn.Module):
     def forward(self, x_his):
         qz_s, mean_qz_s, var_qz_s = self.VarUnit_s(x_his)
         xs_rec = self.RecUnit_s(qz_s)
-        elbo_s = period_sim(xs_rec, x_his) - self.VarUnit_s.compute_KL(
-            qz_s, mean_qz_s, var_qz_s)
+        elbo_s = period_sim(xs_rec, x_his) - self.VarUnit_s.compute_KL(qz_s, mean_qz_s, var_qz_s)
         mlbo_s = self.VarUnit_s.compute_MLBO(x_his, qz_s)
 
         """ Fourier """
@@ -265,7 +263,6 @@ class LaST(nn.Module):
         else:
             if x_mark is not None:
                 x_his = torch.cat([x_his, x_mark], dim=-1)
-        import pdb; pdb.set_trace()
         x_s, x_t, elbo, mlbo, mubo = self.LaSTLayer(x_his)
         x_pred = x_s + x_t
         x_pred = x_pred.squeeze(-1) if self.v_num > 1 else x_pred
@@ -324,6 +321,8 @@ class NonLinear(nn.Module):
 
 
 def log_Normal_diag(x, mean, var, average=True, dim=None):
+    eps = 10e-7
+    var = var + eps 
     log_normal = -0.5 * (torch.log(var) + torch.pow(x - mean, 2) / var ** 2)
     if average:
         return torch.mean(log_normal, dim)

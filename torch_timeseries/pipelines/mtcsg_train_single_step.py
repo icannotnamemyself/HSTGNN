@@ -173,7 +173,7 @@ def train_pipe(dataset:Dataset , device:str, scaler:Scaler, model:nn.Module, los
         total_loss = 0
         model.train()
         
-        # 让train_loader 每次都random不一样，能够显著的提升模型性能。
+        # 让 train_loader 每次都random不一样，能够显著的提升模型性能。
         for train_x, train_y in train_loader:
             model.zero_grad()
             train_x = train_x.to(device, dtype=torch.float)            

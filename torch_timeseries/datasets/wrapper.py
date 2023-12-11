@@ -47,11 +47,13 @@ class MultiStepTimeFeatureSet(Dataset):
         if isinstance(index, int):
             x = self.scaled_data[index:index+self.window]
             x_date_enc = self.date_enc_data[index:index+self.window]
-            y = self.scaled_data[self.window + self.horizon - 1 +
+            scaled_y = self.scaled_data[self.window + self.horizon - 1 +
+                                 index:self.window + self.horizon - 1 + index+self.steps]
+            y = self.dataset.data[self.window + self.horizon - 1 +
                                  index:self.window + self.horizon - 1 + index+self.steps]
             y_date_enc = self.date_enc_data[self.window + self.horizon -
                                             1 + index:self.window + self.horizon - 1 + index+self.steps]
-            return x, y, x_date_enc, y_date_enc
+            return x, scaled_y,y, x_date_enc, y_date_enc
         else:
             raise TypeError('Not surpported index type!!!')
 

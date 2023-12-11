@@ -13,6 +13,10 @@ from .dummy import Dummy
 from .metr_la import METR_LA
 from .pems_bay import PEMS_BAY
 from .pems_D7 import PeMS_D7
+from .pems03 import PEMS03
+from .pems04 import PEMS04
+from .pems07 import PEMS07
+from .pems08 import PEMS08
 
 
 # __all__ = [

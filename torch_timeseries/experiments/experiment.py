@@ -3,6 +3,9 @@ from enum import Enum
 import json
 import os
 import random
+import re
+import signal
+import threading
 import time
 import hashlib
 from prettytable import PrettyTable
@@ -32,7 +35,8 @@ from torch.utils.data import Dataset, DataLoader, RandomSampler, Subset
 from torch.nn import DataParallel
 from dataclasses import asdict, dataclass
 
-from torch_timeseries.nn.metric import R2, Corr, TrendAcc, compute_corr, compute_r2
+from torch_timeseries.nn.metric import R2, Corr, TrendAcc,RMSE, compute_corr, compute_r2
+from torch_timeseries.metrics.masked_mape import MaskedMAPE
 from torch_timeseries.utils.early_stopping import EarlyStopping
 import json
 import codecs
@@ -119,6 +123,7 @@ class Experiment(Settings):
         
         
         run = wandb.init(
+            mode='offline',
             project=project,
             name=name,
             tags=[self.model_type, self.dataset_type, f"horizon-{self.horizon}", f"window-{self.windows}", f"pred-{self.pred_len}"],
@@ -127,7 +132,21 @@ class Experiment(Settings):
         self.wandb = True
         print(f"using wandb , running in config: {asdict(self)}")
         return self
+    
+    def wandb_sweep(
+        self,
+        project,
+        name,
+    ):
+        run = wandb.init(
+            project='BiSTGNN'
+        )
+        wandb.config.update(asdict(self))
+        self.wandb = True
+        print(f"using wandb , running in config: {asdict(self)}")
+        return self
 
+    
     def _use_wandb(self):
         return hasattr(self, "wandb")
 
@@ -183,6 +202,8 @@ class Experiment(Settings):
                     "mse": MeanSquaredError(),
                     "mae": MeanAbsoluteError(),
                     "mape": MeanAbsolutePercentageError(),
+                    'mape': MaskedMAPE(null_val=0),
+                    'rmse': RMSE(),
                 }
             )
 
@@ -208,43 +229,45 @@ class Experiment(Settings):
     def _run_identifier(self, seed) -> str:
         ident = self.result_related_config
         ident["seed"] = seed
-        
+        # only influence the evluation result, not included here
+        ident['invtrans_loss'] = False
+
         ident_md5 = hashlib.md5(
             json.dumps(ident, sort_keys=True).encode("utf-8")
         ).hexdigest()
 
         return str(ident_md5)
 
-    def _init_ddp_data_loader(self):
-        self.dataset = self._parse_type(self.dataset_type)(root=self.data_path)
-        self.scaler = self._parse_type(self.scaler_type)()
-        self.dataloader = DDPChunkSequenceTimefeatureDataLoader(
-            self.dataset,
-            self.scaler,
-            window=self.windows,
-            horizon=self.horizon,
-            steps=self.pred_len,
-            scale_in_train=False,
-            shuffle_train=True,
-            # TODO: dataset specific freqency settings
-            freq="h",
-            batch_size=self.batch_size,
-            train_ratio=0.7,
-            val_ratio=0.2,
-            num_worker=self.num_worker,
-        )
-        self.train_loader, self.val_loader, self.test_loader = (
-            self.dataloader.train_loader,
-            self.dataloader.val_loader,
-            self.dataloader.test_loader,
-        )
-        self.train_steps = self.dataloader.train_size
-        self.val_steps = self.dataloader.val_size
-        self.test_steps = self.dataloader.test_size
+    # def _init_ddp_data_loader(self):
+    #     self.dataset = self._parse_type(self.dataset_type)(root=self.data_path)
+    #     self.scaler = self._parse_type(self.scaler_type)()
+    #     self.dataloader = DDPChunkSequenceTimefeatureDataLoader(
+    #         self.dataset,
+    #         self.scaler,
+    #         window=self.windows,
+    #         horizon=self.horizon,
+    #         steps=self.pred_len,
+    #         scale_in_train=False,
+    #         shuffle_train=True,
+    #         # TODO: dataset specific freqency settings
+    #         freq="h",
+    #         batch_size=self.batch_size,
+    #         train_ratio=0.7,
+    #         val_ratio=0.2,
+    #         num_worker=self.num_worker,
+    #     )
+    #     self.train_loader, self.val_loader, self.test_loader = (
+    #         self.dataloader.train_loader,
+    #         self.dataloader.val_loader,
+    #         self.dataloader.test_loader,
+    #     )
+    #     self.train_steps = self.dataloader.train_size
+    #     self.val_steps = self.dataloader.val_size
+    #     self.test_steps = self.dataloader.test_size
 
-        print(f"train steps: {self.train_steps}")
-        print(f"val steps: {self.val_steps}")
-        print(f"test steps: {self.test_steps}")
+    #     print(f"train steps: {self.train_steps}")
+    #     print(f"val steps: {self.val_steps}")
+    #     print(f"test steps: {self.test_steps}")
 
     def _init_data_loader(self):
         self.dataset : TimeSeriesDataset = self._parse_type(self.dataset_type)(root=self.data_path)
@@ -452,13 +475,19 @@ class Experiment(Settings):
         # y_preds = []
         with torch.no_grad():
             with tqdm(total=length) as progress_bar:
-                for batch_x, batch_y, batch_x_date_enc, batch_y_date_enc in dataloader:
+                for batch_x, batch_y,batch_origin_y, batch_x_date_enc, batch_y_date_enc in dataloader:
                     batch_size = batch_x.size(0)
                     preds, truths = self._process_one_batch(
                         batch_x, batch_y, batch_x_date_enc, batch_y_date_enc
                     )
                     # the result should be the same
                     # self.metrics.update(preds.view(batch_size, -1), truths.view(batch_size, -1))
+                    # import pdb;pdb.set_trace()
+                    batch_origin_y = batch_origin_y.to(self.device)
+                    if self.invtrans_loss:
+                        preds = self.scaler.inverse_transform(preds)
+                        truths = batch_origin_y
+
                     if self.pred_len == 1:
                         self.metrics.update(preds.view(batch_size, -1), truths.view(batch_size, -1))
                     else:
@@ -476,11 +505,12 @@ class Experiment(Settings):
     def _test(self) -> Dict[str, float]:
         print("Testing .... ")
         test_result = self._evaluate(self.test_loader)
-        
-        if self._use_wandb():
-            for name, metric_value in test_result.items():
-                wandb.run.summary["test_" + name] = metric_value
 
+
+        for name, metric_value in test_result.items():
+            if self._use_wandb():
+                wandb.run.summary["test_" + name] = metric_value
+            
         self._run_print(f"test_results: {test_result}")
         return test_result
 
@@ -560,9 +590,10 @@ class Experiment(Settings):
     def _val(self):
         print("Evaluating .... ")
         val_result = self._evaluate(self.val_loader)
-
-        if self._use_wandb():
-            for name, metric_value in val_result.items():
+        
+        
+        for name, metric_value in val_result.items():
+            if self._use_wandb():
                 wandb.run.summary["val_" + name] = metric_value
 
         self._run_print(f"vali_results: {val_result}")
@@ -574,20 +605,18 @@ class Experiment(Settings):
             for i, (
                 batch_x,
                 batch_y,
+                origin_y,
                 batch_x_date_enc,
                 batch_y_date_enc,
             ) in enumerate(self.train_loader):
-                
+                origin_y = origin_y.to(self.device)
                 self.model_optim.zero_grad()
                 pred, true = self._process_one_batch(
                     batch_x, batch_y, batch_x_date_enc, batch_y_date_enc
                 )
                 if self.invtrans_loss:
                     pred = self.scaler.inverse_transform(pred)
-                    batch_y = self.scaler.inverse_transform(batch_y)
-                else:
-                    pred = pred
-                    batch_y = batch_y
+                    true = origin_y
                 loss = self.loss_func(pred, true)
                 loss.backward()
 
@@ -601,9 +630,6 @@ class Experiment(Settings):
                     epoch=self.current_epoch,
                     refresh=True,
                 )
-
-                if self._use_wandb():
-                    wandb.log({"loss": loss.item()}, step=i)
 
                 self.model_optim.step()
                 
@@ -644,8 +670,18 @@ class Experiment(Settings):
             self._resume_run(seed)
 
         self.experiment_label = f"{self.model_type}-w{self.windows}-h{self.horizon}"
+    
+    
+    def test_sweep(self):
+        run = wandb.init(
+            mode='offline',
+            project='sweep_test'
+        )
+        wandb.log({"log1":1})
+        run.finish()
         
-        
+        # raise NotImplementedError("ss")
+        return
 
     def run(self, seed=42) -> Dict[str, float]:
         if hasattr(self, "finished") and self.finished is True:
@@ -688,6 +724,8 @@ class Experiment(Settings):
 
             # evaluate on val set
             result = self._val()
+            # test
+            self._test()
 
             self.current_epoch = self.current_epoch + 1
             self.early_stopper(result[self.loss_func_type], model=self.model)
@@ -695,6 +733,11 @@ class Experiment(Settings):
             self._save_run_check_point(seed)
 
             self.scheduler.step()
+            
+            # if self._use_wandb():
+            #     wandb.log(result, step=self.current_epoch)
+
+
 
         self._load_best_model()
         best_test_result = self._test()
@@ -721,7 +764,7 @@ class Experiment(Settings):
             self._save(seed=seed)
 
         return self._test()
-    
+
     def runs(self, seeds: List[int] = [42,233,666,19971203,19980224]):
         if hasattr(self, "finished") and self.finished is True:
             print("Experiment finished!!!")
@@ -754,6 +797,7 @@ class Experiment(Settings):
                 wandb.run.summary[f"{index}_mean"] = row["mean"]
                 wandb.run.summary[f"{index}_std"] = row["std"]
                 wandb.run.summary[index] = f"{row['mean']:.4f}±{row['std']:.4f}"
+        wandb.finish()
         return self.metric_mean_std
 
 def main():
@@ -771,10 +815,35 @@ def main():
         scaler_type="MaxAbsScaler",
     )
 
-    exp._run_identifier()
     # exp = Experiment(settings)
     # exp.run()
+# This function forcibly kills the remaining wandb process.
+def force_finish_wandb():
+    with open(os.path.join(os.path.dirname(__file__), './wandb/latest-run/logs/debug-internal.log'), 'r') as f:
+        last_line = f.readlines()[-1]
+    match = re.search(r'(HandlerThread:|SenderThread:)\s*(\d+)', last_line)
+    if match:
+        pid = int(match.group(2))
+        print(f'wandb pid: {pid}')
+    else:
+        print('Cannot find wandb process-id.')
+        return
+    
+    try:
+        os.kill(pid, signal.SIGKILL)
+        print(f"Process with PID {pid} killed successfully.")
+    except OSError:
+        print(f"Failed to kill process with PID {pid}.")
 
+# Start wandb.finish() and execute force_finish_wandb() after 60 seconds.
+def try_finish_wandb():
+    threading.Timer(5, force_finish_wandb).start()
+    wandb.finish()
+
+# trainning scripts
+
+# use try_finish_wandb instead of wandb.finish
+# try_finish_wandb()
 
 if __name__ == "__main__":
     main()

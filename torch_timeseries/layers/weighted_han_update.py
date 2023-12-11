@@ -10,7 +10,7 @@ from torch_geometric.nn import FAConv, HeteroConv
 from torch_geometric.nn.conv.gcn_conv import gcn_norm
 
 from torch_geometric.nn import HeteroConv, Linear, HANConv
-from torch_timeseries.layers.weighted_hanconv import WeightedHANConv
+from torch_timeseries.layers.weighted_hanconv_update import WeightedHANConv
 from torch_timeseries.utils.norm import hetero_directed_norm
 
 # from torch_timeseries.layers.graphsage import MyGraphSage
@@ -106,7 +106,7 @@ class WeightedHAN(nn.Module):
                 edge_weight_bi = edge_attr[bi]
                 # TODO: edge may be empty, please ensure no empty edges here
                 # assert ((edge_index_bi[0] < self.node_num) 
-                #     & (edge_index_bi[1] < self.node_num)).any() == True
+                    # & (edge_index_bi[1] < self.node_num)).any() == True
                 
                 nn_index = (edge_index_bi[0] < self.node_num)  & (edge_index_bi[1] < self.node_num)
                 tt_index = (edge_index_bi[0] >= self.node_num) & (edge_index_bi[1] >= self.node_num)
@@ -177,12 +177,12 @@ class WeightedHAN(nn.Module):
             if i == self.num_layers - 1:
                 break
 
-            if self.act_first:
-                x = self.act(x)
-            if self.norms is not None:
-                x = self.norms[i](x)
-            if not self.act_first:
-                x = self.act(x)
+            # if self.act_first:
+            #     x = self.act(x)
+            # if self.norms is not None:
+            #     x = self.norms[i](x)
+            # if not self.act_first:
+            #     x = self.act(x)
 
             x = F.dropout(x, p=self.dropout, training=self.training)
         return x

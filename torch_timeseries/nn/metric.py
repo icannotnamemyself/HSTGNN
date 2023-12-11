@@ -95,6 +95,7 @@ class TrendAcc(Metric):
         return self.sum_trend_hit / self.total
 
 
+
 class R2(R2Score):
     """Metric for multi step forcasting"""
     compute_by_all : bool = False
@@ -130,7 +131,6 @@ class R2(R2Score):
             self.total += n_obs
         else:
             R2Score.update(self, preds, target)
-
     def compute(self) -> Tensor:
         if self.num_nodes > 1:
             result = torch.tensor([_r2_score_compute(
@@ -151,8 +151,8 @@ class Corr(Metric):
             self.add_state("y_pred", default=torch.Tensor(), dist_reduce_fx="cat")
             self.add_state("y_true", default=torch.Tensor(), dist_reduce_fx="cat")
         else:
-            self.y_pred = [] 
-            self.y_true = [] 
+            self.add_state("y_pred", default=[])
+            self.add_state("y_true", default=[])
 
 
     def update(self, y_pred: torch.Tensor, y_true: torch.Tensor):
@@ -170,3 +170,7 @@ class Corr(Metric):
         else:
             return compute_corr(np.concatenate(self.y_pred, axis=0), np.concatenate(self.y_true, axis=0))
 
+
+class RMSE(MeanSquaredError):
+    def compute(self):
+        return torch.sqrt(super().compute())

@@ -17,8 +17,9 @@ class LaSTExperiment(Experiment):
     var_num : int = 1
     latent_dim : int = 64
     para_mode  : int = 0
-    dropout : float = 0.0
-    
+    dropout : float = 0.1
+
+
     def _init_model(self):
         self.model = LaST(
                 input_len=self.windows,
@@ -55,6 +56,7 @@ class LaSTExperiment(Experiment):
             for i, (
                 batch_x,
                 batch_y,
+                origin_y,
                 batch_x_date_enc,
                 batch_y_date_enc,
             ) in enumerate(self.train_loader):
@@ -82,7 +84,6 @@ class LaSTExperiment(Experiment):
                         for para in self.model.LaSTLayer.TNet.VarUnit_t.critic_xz.parameters():
                             para.requires_grad = True 
                     pred, true, elbo, mlbo, mubo = self._process_one_batch_train( batch_x, batch_y, batch_x_date_enc, batch_y_date_enc)
-                    
                     if self.invtrans_loss:
                         pred = self.scaler.inverse_transform(pred)
                         batch_y = self.scaler.inverse_transform(batch_y)

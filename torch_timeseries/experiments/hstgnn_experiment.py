@@ -3,7 +3,6 @@ import time
 from typing import Dict, List, Type
 import numpy as np
 import torch
-import os
 from tqdm import tqdm
 from torch_timeseries.data.scaler import *
 from torch_timeseries.datasets import *
@@ -11,7 +10,7 @@ from torch_timeseries.datasets.dataset import TimeSeriesDataset, TimeSeriesStati
 from torch_timeseries.datasets.splitter import SequenceSplitter
 from torch_timeseries.datasets.wrapper import MultiStepTimeFeatureSet
 from torch_timeseries.experiments.experiment import Experiment
-from torch_timeseries.models import  BiSTGNNv6
+from torch_timeseries.models import  HSTGNN
 from torch_timeseries.nn.metric import TrendAcc, R2, Corr
 from torch.nn import MSELoss, L1Loss
 from torchmetrics import MetricCollection, R2Score, MeanSquaredError
@@ -22,19 +21,18 @@ from torch.optim import Optimizer, Adam
 
 import wandb
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 
 
 @dataclass
-class BiSTGNNv6Experiment(Experiment):
-    model_type: str = "BiSTGNNv6"
+class HSTGNNExperiment(Experiment):
+    model_type: str = "HSTGNN"
     
-    remain_prob:float=1.0
     gcn_type:str='weighted_han'
     graph_build_type:str='adaptive'
-    output_layer_type:str='tcn6'
+    output_layer_type:str='tcn8'
     
-    latent_dim:int=32
+    latent_dim:int=16
     gcn_layers:int=2
     tn_layers:int=1
     
@@ -42,34 +40,19 @@ class BiSTGNNv6Experiment(Experiment):
     negative_slope:float = 0.2
     
     node_static_embed_dim :int = 16
-    dropout:float=0.3
+    dropout:float=0.0
     act:str='elu'
     tcn_channel:int=16
     rebuild_time:bool=True
     rebuild_space:bool=True
-    tcn_layers:int=5
+    tcn_layers:int = 5
     dilated_factor:int = 2
     self_loop_eps:float= 0.1
     without_tn_module:bool = False
     without_gcn:bool = False
-    
-    
-    def reproducible(self, seed):
-        # for reproducibility
-        # torch.set_default_dtype(torch.float32)
-        print("torch.get_default_dtype()", torch.get_default_dtype())
-        torch.set_default_tensor_type(torch.FloatTensor)
-        torch.manual_seed(seed)
-        os.environ["PYTHONHASHSEED"] = str(seed)
-        torch.cuda.manual_seed_all(seed)
-        np.random.seed(seed)
-        random.seed(seed)
-        # torch.use_deterministic_algorithms(True)
-        torch.backends.cudnn.benchmark = False
-        torch.backends.cudnn.determinstic = True
+    d0 : int = 2
+    kernel_set : List[int] = field(default_factory=lambda:[2,3,6,7])
 
-    
-    
     def _init_model(self):
         predefined_NN_adj = None
         padded_A = None
@@ -87,8 +70,7 @@ class BiSTGNNv6Experiment(Experiment):
             temporal_embed_dim = 0
         else:
             temporal_embed_dim = 4
-        
-        self.model = BiSTGNNv6(
+        self.model = HSTGNN(
             seq_len=self.windows,
             num_nodes=self.dataset.num_features,
             temporal_embed_dim=temporal_embed_dim, # 4 for hour embedding
@@ -100,7 +82,6 @@ class BiSTGNNv6Experiment(Experiment):
             dropout=self.dropout,
             graph_build_type=self.graph_build_type,
             graph_conv_type=self.gcn_type,
-            tn_layers=self.tn_layers,
             rebuild_time=self.rebuild_time,
             rebuild_space=self.rebuild_space,
             out_seq_len=self.pred_len,
@@ -110,7 +91,6 @@ class BiSTGNNv6Experiment(Experiment):
             tcn_channel=self.tcn_channel,
             act=self.act,
             output_layer_type=self.output_layer_type,
-            self_loop_eps=self.self_loop_eps,
             without_tn_module=self.without_tn_module
         )
         self.model = self.model.to(self.device)
@@ -125,8 +105,8 @@ class BiSTGNNv6Experiment(Experiment):
         batch_size = batch_x.size(0)
         batch_x = batch_x.to(self.device, dtype=torch.float32)
         batch_y = batch_y.to(self.device, dtype=torch.float32)
-        batch_x_date_enc = batch_x_date_enc.to(self.device, dtype=torch.float32)
-        batch_y_date_enc = batch_y_date_enc.to(self.device, dtype=torch.float32)
+        batch_x_date_enc = batch_x_date_enc.to(self.device).float()
+        batch_y_date_enc = batch_y_date_enc.to(self.device).float()
         batch_x = batch_x.transpose(1,2)
         outputs = self.model(batch_x,batch_x_date_enc)  # torch.Size([batch_size, num_nodes])
         # single step prediction
@@ -134,13 +114,16 @@ class BiSTGNNv6Experiment(Experiment):
 
 
 def main():
-    exp = BiSTGNNv6Experiment(
-        dataset_type="ExchangeRate",
+    exp = HSTGNNExperiment(
+        dataset_type="DummyDatasetGraph",
         data_path="./data",
         optm_type="Adam",
-        batch_size=64,
+        horizon=1,
+        graph_build_type='predefined_adaptive',
+        pred_len=3,
+        batch_size=12,
         device="cuda:0",
-        windows=168,
+        windows=12,
     )
     # exp.config_wandb(
     #     "project",

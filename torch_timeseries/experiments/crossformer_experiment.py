@@ -3,6 +3,7 @@ import time
 from typing import Dict, List, Type
 import numpy as np
 import torch
+import os
 from tqdm import tqdm
 from torch_timeseries.data.scaler import *
 from torch_timeseries.datasets import *
@@ -28,15 +29,32 @@ from dataclasses import dataclass, asdict
 class CrossformerExperiment(Experiment):
     model_type: str = "Crossformer"
     
-    seg_len:int = 4 # following crossformer paper,segment length from 4 to 24, samller segment yield better results
-    win_size:int = 4  # default:2 , since winsize 2 is used in crossformer original paper
+    seg_len:int = 6 # following crossformer paper,segment length from 4 to 24, samller segment yield better results
+    win_size:int = 2  # default:2 , since winsize 2 is used in crossformer original paper
     factor:int = 10
-    d_model:int=512
+    d_model:int=256
     d_ff:int = 512
-    n_heads:int=8
+    n_heads:int=4
     e_layers:int=3 
-    dropout:float=0.0
+    dropout:float=0.2
     baseline = False
+
+    # def reproducible(self, seed):
+    #     # for reproducibility
+    #     # torch.set_default_dtype(torch.float32)
+    #     print("torch.get_default_dtype()", torch.get_default_dtype())
+    #     torch.set_default_tensor_type(torch.HalfTensor)
+    #     torch.manual_seed(seed)
+    #     os.environ["PYTHONHASHSEED"] = str(seed)
+    #     torch.cuda.manual_seed_all(seed)
+    #     np.random.seed(seed)
+    #     random.seed(seed)
+    #     # torch.use_deterministic_algorithms(True)
+    #     torch.backends.cudnn.benchmark = False
+    #     torch.backends.cudnn.determinstic = True
+
+    
+    
 
     def _init_model(self):
         self.model = Crossformer(
@@ -47,8 +65,17 @@ class CrossformerExperiment(Experiment):
         self.model = self.model.to(self.device)
 
     def _process_one_batch(self, batch_x, batch_y, batch_x_date_enc, batch_y_date_enc):
-        batch_x = batch_x.float().to(self.device)
-        batch_y = batch_y.float().to(self.device)
+        batch_size = batch_x.size(0)
+        # batch_x = batch_x.to(self.device, dtype=torch.float16)
+        # batch_y = batch_y.to(self.device, dtype=torch.float16)
+        # batch_x_date_enc = batch_x_date_enc.to(self.device, dtype=torch.float16)
+        # batch_y_date_enc = batch_y_date_enc.to(self.device, dtype=torch.float16)
+
+        batch_x = batch_x.to(self.device, dtype=torch.float32)
+        batch_y = batch_y.to(self.device, dtype=torch.float32)
+        batch_x_date_enc = batch_x_date_enc.to(self.device, dtype=torch.float32)
+        batch_y_date_enc = batch_y_date_enc.to(self.device, dtype=torch.float32)
+
 
         outputs = self.model(batch_x)
         return outputs, batch_y

@@ -7,12 +7,14 @@ from torch_timeseries.layers.han import HAN
 from torch_timeseries.layers.tcn_output2 import TCNOuputLayer as TCNOuputLayer2
 from torch_timeseries.layers.tcn_output3 import TCNOuputLayer as TCNOuputLayer3
 from torch_timeseries.layers.tcn_output4 import TCNOuputLayer as TCNOuputLayer4
+from torch_timeseries.layers.tcn_output8 import TCNOuputLayer as TCNOuputLayer8
 from torch_timeseries.layers.tcn_output import TCNOuputLayer
 from torch_timeseries.layers.weighted_han import WeightedHAN
+from torch_timeseries.layers.weighted_han_update import WeightedHAN as WeightedHANUpdate
 from torch_timeseries.layers.graphsage import MyGraphSage, MyFAGCN
 
 
-class BiSTGNNv6(nn.Module):
+class HSTGNN(nn.Module):
     def __init__(
         self,
         seq_len,
@@ -20,15 +22,14 @@ class BiSTGNNv6(nn.Module):
         temporal_embed_dim,
         graph_build_type="adaptive", # "predefined_adaptive"
         graph_conv_type="weighted_han",
-        output_layer_type='tcn6',
+        output_layer_type='tcn8',
         heads=1,
         negative_slope=0.2,
         gcn_layers=2,
-        tn_layers=1,
         rebuild_time=True,
         rebuild_space=True,
-        node_static_embed_dim=32,
-        latent_dim=32,
+        node_static_embed_dim=16,
+        latent_dim=16,
         tcn_layers=5,
         dilated_factor=2,
         tcn_channel=16,
@@ -38,18 +39,20 @@ class BiSTGNNv6(nn.Module):
         act='elu',
         self_loop_eps=0.1,
         without_tn_module=False,
+        d0=2,
+        kernel_set=[2,3,6,7]
     ):
-        super(BiSTGNNv6, self).__init__()
+        super(HSTGNN, self).__init__()
 
         self.num_nodes = num_nodes
         self.static_embed_dim = node_static_embed_dim
         self.latent_dim = latent_dim
-        self.tn_layers = tn_layers
         self.heads = heads
         self.negative_slope = negative_slope
         self.out_seq_len = out_seq_len
         self.self_loop_eps = self_loop_eps
         self.without_tn_module = without_tn_module
+        self.kernel_set = kernel_set
 
         self.spatial_encoder = SpatialEncoder(
             seq_len,
@@ -83,7 +86,7 @@ class BiSTGNNv6(nn.Module):
         self.tn_modules = nn.ModuleList()
         
         if not self.without_tn_module:
-            for i in range(self.tn_layers):
+            for i in range(1):
                 self.tn_modules.append(
                     TNModule(
                         num_nodes,
@@ -136,7 +139,18 @@ class BiSTGNNv6(nn.Module):
                 in_channel=out_channels,
                 tcn_channel=tcn_channel,
             )
-
+        elif output_layer_type == 'tcn8':
+            self.output_layer = TCNOuputLayer8(
+                input_seq_len=seq_len,
+                num_nodes=self.num_nodes,
+                out_seq_len=self.out_seq_len,
+                tcn_layers=tcn_layers,
+                dilated_factor=dilated_factor,
+                in_channel=out_channels,
+                tcn_channel=tcn_channel,
+                d0=d0,
+                kernel_set=kernel_set,
+            )
         else:
             raise NotImplementedError(f"output layer type {output_layer_type} not implemented")
 
@@ -153,7 +167,7 @@ class BiSTGNNv6(nn.Module):
         X = torch.concat([Xs, Xt], dim=1)  # (B, N+T, latent_dim)
         
         if not self.without_tn_module:
-            for i in range(self.tn_layers):
+            for i in range(1):
                 X = self.tn_modules[i](X)  # (B, N+T, latent_dim)
 
         # rebuild module
@@ -206,26 +220,10 @@ class TNModule(nn.Module):
             self.graph_conv = MyGraphSage(latent_dim, latent_dim, gcn_layers,act='elu')
         elif graph_conv_type == 'fagcn':
             self.graph_conv = MyFAGCN(latent_dim, latent_dim, gcn_layers,act='elu')
-        elif graph_conv_type == 'fastgcn6':
-            self.graph_conv = HeteroFASTGCN6(
-                num_nodes, seq_len, latent_dim, latent_dim, gcn_layers, dropout=0,act='elu'
-            )
         elif graph_conv_type == 'han':
             self.graph_conv = HAN(
                 num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
                 heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act
-            )
-        elif graph_conv_type == 'han_homo':
-            self.graph_conv = HAN(
-                num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
-                heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
-                conv_type='homo'
-            )
-        elif graph_conv_type == 'han_hetero':
-            self.graph_conv = HAN(
-                num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
-                heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
-                conv_type='hetero'
             )
         elif graph_conv_type == 'weighted_han':
             self.graph_conv = WeightedHAN(
@@ -233,6 +231,13 @@ class TNModule(nn.Module):
                 heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
                 conv_type='all'
             )
+        elif graph_conv_type == 'weighted_han_update':
+            self.graph_conv = WeightedHANUpdate(
+                num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
+                heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
+                conv_type='all'
+            )
+
         elif graph_conv_type == 'weighted_han_homo':
             self.graph_conv = WeightedHAN(
                 num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
@@ -247,7 +252,6 @@ class TNModule(nn.Module):
             )
         else:
             raise NotImplementedError("Unknown graph_conv")
-        self.graph_embedding = GraphEmbeeding(latent_dim=latent_dim)
 
     def forward(self, X):
         """
@@ -264,7 +268,6 @@ class TNModule(nn.Module):
             Xs, Xt
         )  # spatial and temporal adjecent matrix
         X = self.graph_conv(X, batch_indices, batch_values)
-        X = self.graph_embedding(batch_adj, X)
 
         return X
 
@@ -405,13 +408,3 @@ class STGraphConstructor(nn.Module):
             batch_values.append(edge_weights)
         return adj, batch_indices, batch_values
 
-
-class GraphEmbeeding(nn.Module):
-    def __init__(self, latent_dim):
-        super(GraphEmbeeding, self).__init__()
-
-    def forward(self, adj, X) -> Tuple[torch.Tensor, torch.Tensor]:
-        # spatial nodes: (B, N, D)
-        # temporal nodes: (B, T, D)
-        # A : (N,T), (T , N)
-        return X

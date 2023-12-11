@@ -7,12 +7,18 @@ from torch_timeseries.layers.han import HAN
 from torch_timeseries.layers.tcn_output2 import TCNOuputLayer as TCNOuputLayer2
 from torch_timeseries.layers.tcn_output3 import TCNOuputLayer as TCNOuputLayer3
 from torch_timeseries.layers.tcn_output4 import TCNOuputLayer as TCNOuputLayer4
-from torch_timeseries.layers.tcn_output import TCNOuputLayer
+from torch_timeseries.nn.tcnv5 import TCNOuputLayer
 from torch_timeseries.layers.weighted_han import WeightedHAN
-from torch_timeseries.layers.graphsage import MyGraphSage, MyFAGCN
+from torch_timeseries.layers.weighted_han_update import WeightedHAN as WeightedHANUpdate
 
 
-class BiSTGNNv6(nn.Module):
+from builtins import print
+import torch
+from torch._C import get_num_interop_threads
+import torch.nn as nn
+import pyro
+
+class BiSTGNNv8(nn.Module):
     def __init__(
         self,
         seq_len,
@@ -20,26 +26,26 @@ class BiSTGNNv6(nn.Module):
         temporal_embed_dim,
         graph_build_type="adaptive", # "predefined_adaptive"
         graph_conv_type="weighted_han",
-        output_layer_type='tcn6',
+        output_layer_type='tcn8',
         heads=1,
-        negative_slope=0.2,
+        negative_slope=0.1,
         gcn_layers=2,
-        tn_layers=1,
+        tn_layers=2,
         rebuild_time=True,
         rebuild_space=True,
         node_static_embed_dim=32,
         latent_dim=32,
         tcn_layers=5,
         dilated_factor=2,
-        tcn_channel=16,
+        tcn_channel=32,
+        tcn_end_channel=128,
         out_seq_len=1,
         dropout=0.0,
         predefined_adj=None,
         act='elu',
-        self_loop_eps=0.1,
         without_tn_module=False,
     ):
-        super(BiSTGNNv6, self).__init__()
+        super(BiSTGNNv8, self).__init__()
 
         self.num_nodes = num_nodes
         self.static_embed_dim = node_static_embed_dim
@@ -48,7 +54,7 @@ class BiSTGNNv6(nn.Module):
         self.heads = heads
         self.negative_slope = negative_slope
         self.out_seq_len = out_seq_len
-        self.self_loop_eps = self_loop_eps
+        self.tcn_end_channel = tcn_end_channel
         self.without_tn_module = without_tn_module
 
         self.spatial_encoder = SpatialEncoder(
@@ -97,7 +103,6 @@ class BiSTGNNv6(nn.Module):
                         dropout=dropout,
                         act=act,
                         predefined_adj=predefined_adj,
-                        self_loop_eps=self.self_loop_eps
                     )
                 )
 
@@ -106,28 +111,8 @@ class BiSTGNNv6(nn.Module):
             out_channels = out_channels + 1
         if rebuild_time:
             out_channels = out_channels + 1
-        if output_layer_type == 'tcn6':
-            if out_seq_len == 1:
-                self.output_layer = TCNOuputLayer(
-                    input_seq_len=seq_len,
-                    out_seq_len=self.out_seq_len,
-                    tcn_layers=tcn_layers,
-                    dilated_factor=dilated_factor,
-                    in_channel=out_channels,
-                    tcn_channel=tcn_channel,
-                )
-            else:
-                self.output_layer = TCNOuputLayer4(
-                    input_seq_len=seq_len,
-                    num_nodes=self.num_nodes,
-                    out_seq_len=self.out_seq_len,
-                    tcn_layers=tcn_layers,
-                    dilated_factor=dilated_factor,
-                    in_channel=out_channels,
-                    tcn_channel=tcn_channel,
-                )
-        elif output_layer_type == 'tcn7':
-            self.output_layer = TCNOuputLayer4(
+        if output_layer_type == 'tcn8':
+            self.output_layer = TCNOuputLayer(
                 input_seq_len=seq_len,
                 num_nodes=self.num_nodes,
                 out_seq_len=self.out_seq_len,
@@ -135,8 +120,8 @@ class BiSTGNNv6(nn.Module):
                 dilated_factor=dilated_factor,
                 in_channel=out_channels,
                 tcn_channel=tcn_channel,
+                end_channel=self.tcn_end_channel,
             )
-
         else:
             raise NotImplementedError(f"output layer type {output_layer_type} not implemented")
 
@@ -178,7 +163,7 @@ class BiSTGNNv6(nn.Module):
 class TNModule(nn.Module):
     def __init__(
         self, num_nodes, seq_len, latent_dim, gcn_layers, graph_build_type="adaptive",
-        graph_conv_type='fastgcn5',heads=1,negative_slope=0.2,dropout=0.0,act='elu',self_loop_eps=0.5,
+        graph_conv_type='fastgcn5',heads=1,negative_slope=0.2,dropout=0.0,act='elu',
         predefined_adj=None
     ) -> None:
         super().__init__()
@@ -189,23 +174,20 @@ class TNModule(nn.Module):
         self.negative_slope = negative_slope
         self.dropout = dropout
         self.act=  act
-        self.self_loop_eps = self_loop_eps
 
         if graph_build_type == "adaptive":
-            self.graph_constructor = STGraphConstructor(self_loop_eps=self.self_loop_eps)
+            self.graph_constructor = STGraphConstructor(latent_dim=latent_dim)
         elif graph_build_type == "predefined_adaptive":
             assert predefined_adj is not None, "predefined_NN_adj must be provided"
-            self.graph_constructor = STGraphConstructor(predefined_adj=predefined_adj,self_loop_eps=self.self_loop_eps)
+            self.graph_constructor = STGraphConstructor(predefined_adj=predefined_adj,latent_dim=latent_dim)
         elif graph_build_type == "fully_connected":
-            self.graph_constructor = STGraphConstructor(predefined_adj=None, adaptive=False,self_loop_eps=self.self_loop_eps)
+            self.graph_constructor = STGraphConstructor(predefined_adj=None, adaptive=False,latent_dim=latent_dim)
             print("graph_build_type is fully_connected")
 
-        # if graph_conv_type == 'gcn':
-        #     pass
-        if graph_conv_type == 'graphsage':
-            self.graph_conv = MyGraphSage(latent_dim, latent_dim, gcn_layers,act='elu')
-        elif graph_conv_type == 'fagcn':
-            self.graph_conv = MyFAGCN(latent_dim, latent_dim, gcn_layers,act='elu')
+        if graph_conv_type == 'fastgcn5':
+            self.graph_conv = HeteroFASTGCN5(
+                num_nodes, seq_len, latent_dim, latent_dim, gcn_layers, dropout=0,act='elu'
+            )
         elif graph_conv_type == 'fastgcn6':
             self.graph_conv = HeteroFASTGCN6(
                 num_nodes, seq_len, latent_dim, latent_dim, gcn_layers, dropout=0,act='elu'
@@ -233,6 +215,19 @@ class TNModule(nn.Module):
                 heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
                 conv_type='all'
             )
+        elif graph_conv_type == 'weighted_han_update':
+            print("graph_conv_type","weighted_han_update")
+            self.hetero_graph_conv = WeightedHANUpdate(
+                num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
+                heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
+                conv_type='hetero'
+            )
+            self.homo_graph_conv = WeightedHANUpdate(
+                num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
+                heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
+                conv_type='homo'
+            )
+
         elif graph_conv_type == 'weighted_han_homo':
             self.graph_conv = WeightedHAN(
                 num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
@@ -245,6 +240,7 @@ class TNModule(nn.Module):
                 heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
                 conv_type='hetero'
             )
+
         else:
             raise NotImplementedError("Unknown graph_conv")
         self.graph_embedding = GraphEmbeeding(latent_dim=latent_dim)
@@ -263,8 +259,9 @@ class TNModule(nn.Module):
         batch_adj, batch_indices, batch_values = self.graph_constructor(
             Xs, Xt
         )  # spatial and temporal adjecent matrix
-        X = self.graph_conv(X, batch_indices, batch_values)
-        X = self.graph_embedding(batch_adj, X)
+        X = self.homo_graph_conv(X, batch_indices, batch_values)
+        X = self.hetero_graph_conv(X, batch_indices, batch_values)
+        # X = self.graph_embedding(batch_adj, X)
 
         return X
 
@@ -349,11 +346,14 @@ class TemporalEncoder(nn.Module):
 
 
 class STGraphConstructor(nn.Module):
-    def __init__(self, predefined_adj=None, adaptive=True,self_loop_eps=0.5):
+    def __init__(self, latent_dim, predefined_adj=None, adaptive=True):
         super(STGraphConstructor, self).__init__()
         self.predefined_adj =predefined_adj
         self.adaptive =adaptive
-        self.self_loop_eps = self_loop_eps
+        self.latent_dim = latent_dim
+        
+        
+        # self.vae = VGAE(dim_feats=self.dim_feats , dim_h=self.dim_h,dim_z=self.dim_z,activation=torch.nn.ReLU(), gae=True)
         
     def forward(
         self, spatial_nodes, temporal_nodes
@@ -363,47 +363,34 @@ class STGraphConstructor(nn.Module):
         # A : (N,T), (T , N)
         B, N, D = spatial_nodes.size()
         _, T, _ = temporal_nodes.size()
-        node_embs = torch.concat([spatial_nodes, temporal_nodes], dim=1)
+        node_embs = torch.concat([spatial_nodes,  temporal_nodes], dim=1)
+        
         
 
         if not self.adaptive:
-            adj = torch.ones(B, N+T, N+T).to(node_embs.device)
+            batch_adj = torch.ones(B, N+T, N+T).to(node_embs.device)
         else:
-            
-            # predefined adjcent matrix        
+            batch_adj = torch.einsum("bnf, bmf -> bnm", node_embs, node_embs)
             if self.predefined_adj is not None:
-                # avoid inplace operation 
-                adj = torch.einsum("bnf, bmf -> bnm", node_embs, node_embs) + self.predefined_adj
-            else:
-                adj = torch.einsum("bnf, bmf -> bnm", node_embs, node_embs) 
+                batch_adj = batch_adj + self.predefined_adj # enhance adj with prior
+            batch_adj = torch.tanh( torch.relu(batch_adj)) 
             
-            
-            adj = torch.tanh( torch.relu(adj))
-            eye = torch.eye(N+T,N+T).to(adj.device)  # Ensure the unit matrix is on the same device as x
-            eye_expanded = eye.unsqueeze(0).repeat(B, 1, 1)  # Expand the unit matrix to shape (B, N, N)
-            adj =adj + eye_expanded * self.self_loop_eps
-    
-            # # predefined adjcent matrix        
-            # if self.predefined_NN_adj is not None:
-            #     # avoid inplace operation 
-            #     new_adj = adj.clone()
-            #     new_adj[:, :N, :N] = new_adj[:, :N, :N] * self.normalized_predefined_adj.repeat(B, 1, 1)
-            #     adj = new_adj
-
-            # eye_expanded = eye.unsqueeze(0).repeat(B, 1, 1)  # Expand the unit matrix to shape (B, N, N)
-            # adj = torch.tanh(adj + eye_expanded)
-        
-        
-
+            # adjs = []
+            # for i, adj in enumerate(batch_adj):
+            #     adj_logits = self.vae(adj , node_embs[i])
+            #     adj_new = sample_adj(adj_logits)   
+            #     adjs.append(adj_new)
+            # batch_adj = torch.stack(adjs) # (B, N+T, N+T)
+        # extract to pyg format
         batch_indices = list()
         batch_values = list()
         for bi in range(B):
-            source_nodes, target_nodes = adj[bi].nonzero().t()
-            edge_weights = adj[bi][source_nodes, target_nodes]
+            source_nodes, target_nodes = batch_adj[bi].nonzero().t()
+            edge_weights = batch_adj[bi][source_nodes, target_nodes]
             edge_index_i = torch.stack([source_nodes, target_nodes], dim=0)
             batch_indices.append(edge_index_i)
             batch_values.append(edge_weights)
-        return adj, batch_indices, batch_values
+        return batch_adj, batch_indices, batch_values
 
 
 class GraphEmbeeding(nn.Module):
@@ -415,3 +402,83 @@ class GraphEmbeeding(nn.Module):
         # temporal nodes: (B, T, D)
         # A : (N,T), (T , N)
         return X
+
+
+
+
+
+
+#     """ GAE/VGAE as edge prediction model """
+# class VGAE(nn.Module):
+#     def __init__(self, dim_feats, dim_h, dim_z, activation, gae=False):
+#         super(VGAE, self).__init__()
+#         self.gae = gae
+#         self.layers = nn.ModuleList()
+#         self.layers.append(GCNLayer(dim_feats, dim_h, 1, None, 0, bias=False))
+#         self.layers.append(GCNLayer(dim_h, dim_z, 1, activation, 0, bias=False))
+
+#     def forward(self, adj, features):
+#         # GCN encoder
+#         hidden = self.layers[0](adj, features)
+#         self.mean = self.layers[1](adj, hidden)
+#         if self.gae:
+#             # GAE (no sampling at bottleneck)
+#             Z = self.mean
+#         else:
+#             # VGAE
+#             self.logstd = self.layers[2](adj, hidden)
+#             gaussian_noise = torch.randn_like(self.mean)
+#             sampled_Z = gaussian_noise*torch.exp(self.logstd) + self.mean
+#             Z = sampled_Z
+#         # inner product decoder
+#         adj_logits = Z @ Z.T
+#         return adj_logits
+
+# class GCNLayer(nn.Module):
+#     """ one layer of GCN """
+#     def __init__(self, input_dim, output_dim, n_heads, activation, dropout, bias=True):
+#         super(GCNLayer, self).__init__()
+#         self.W = nn.Parameter(torch.FloatTensor(input_dim, output_dim))
+#         self.activation = activation
+#         if bias:
+#             self.b = nn.Parameter(torch.FloatTensor(output_dim))
+#         else:
+#             self.b = None
+#         if dropout:
+#             self.dropout = nn.Dropout(p=dropout)
+#         else:
+#             self.dropout = 0
+#         self.init_params()
+
+#     def init_params(self):
+#         """ Initialize weights with xavier uniform and biases with all zeros """
+#         for param in self.parameters():
+#             if len(param.size()) == 2:
+#                 nn.init.xavier_uniform_(param)
+#             else:
+#                 nn.init.constant_(param, 0.0)
+
+#     def forward(self, adj, h):
+#         if self.dropout:
+#             h = self.dropout(h)
+#         x = h @ self.W
+#         x = adj @ x
+#         if self.b is not None:
+#             x = x + self.b
+#         if self.activation:
+#             x = self.activation(x)
+#         return x
+
+
+# def sample_adj(adj_logits):
+#     """ sample an adj from the predicted edge probabilities of ep_net """
+#     relu = torch.nn.ReLU()
+#     adj_logits = relu(adj_logits)
+#     adj_logits_ = (adj_logits / torch.max(adj_logits))
+#     # sampling
+#     adj_sampled = adj_logits_ * pyro.distributions.RelaxedBernoulliStraightThrough(temperature=0.2, probs=adj_logits_).rsample()
+#     # making adj_sampled symmetric
+#     return adj_sampled
+
+
+

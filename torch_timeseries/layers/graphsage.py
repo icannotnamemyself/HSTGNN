@@ -58,9 +58,9 @@ class MyGraphSage(nn.Module):
     def init_conv(self, in_channels, out_channels, **kwargs):
         return EGraphSage(in_channels, out_channels, activation=self.act, **kwargs)
 
-    def forward(self, x, edge_attr, edge_index):
-        if len(edge_attr.shape) == 2:
-            edge_attr = edge_attr.unsqueeze(-1)  # (B, E) -> (B, E, 1)
+    def forward(self, x , edge_index, edge_attr):
+        # if len(edge_attr.shape) == 2:
+        #     edge_attr = edge_attr.unsqueeze(-1)  # (B, E) -> (B, E, 1)
         origin = x
         for i in range(self.num_layers):
             xs = list()
@@ -134,6 +134,7 @@ class EGraphSage(MessagePassing):
             attention = self.attention_lin(torch.cat((x_i,x_j, edge_attr),dim=-1))
             m_j = attention * self.message_activation(self.message_lin(x_j))
         elif self.edge_mode == 1:
+            edge_attr = edge_attr.view(-1, 1)
             m_j = torch.cat((x_j, edge_attr),dim=-1)
             m_j = self.message_activation(self.message_lin(m_j))
         elif self.edge_mode == 2 or self.edge_mode == 3:
@@ -160,3 +161,41 @@ class EGraphSage(MessagePassing):
         if self.normalize_emb:
             aggr_out = F.normalize(aggr_out, p=2, dim=-1)
         return aggr_out
+
+
+
+class MyFAGCN(MyGraphSage):
+    def __init__(
+        self, in_channels, hidden_channels, n_layers, out_channels=None,
+        dropout=0, norm=None, act='relu', act_first=False, eps=0.1, **kwargs
+    ):
+        super().__init__(in_channels, hidden_channels, n_layers, out_channels, dropout, norm, act, act_first, eps, **kwargs)
+    
+    def init_conv(self, in_channels, out_channels, dropout=0, **kwargs):
+        return FAConv(in_channels, dropout=dropout, eps=self.eps, **kwargs)
+        # return FAConv(in_channels, out_channels, **kwargs)
+    
+    def forward(self, x, edge_index, edge_attr=None):
+        # x: B * (N+T) * C
+        # edge_index: B,2,2*(N*T)
+        # edge_attr: B*E or B * (N * T )
+        # if len(edge_attr.shape) == 2:
+        #     edge_attr = edge_attr.unsqueeze(-1)  # (B, E) -> (B, E, 1)
+        origin = x
+        for i in range(self.num_layers):
+            xs = list()
+            for bi in range(x.shape[0]):
+                xs.append(self.convs[i](x[bi], origin[bi], edge_index[bi]))
+            x = torch.stack(xs)
+            if i == self.num_layers - 1:
+                break
+            
+            if self.act_first:
+                x = self.act(x)
+            if self.norms is not None:
+                x = self.norms[i](x)
+            if not self.act_first:
+                x = self.act(x)
+            
+            x = F.dropout(x, p=self.dropout, training=self.training)
+        return x

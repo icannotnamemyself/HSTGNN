@@ -39,10 +39,16 @@ class DCRNNExperiment(Experiment):
             K=self.K
         )
         self.model = self.model.to(self.device)
+        if isinstance(self.dataset, TimeSeriesStaticGraphDataset) and self.pred_len > 1:
+            predefined_NN_adj = torch.tensor(self.dataset.adj).to(self.device)
+            D = torch.diag(torch.sum(predefined_NN_adj, dim=1))
+            D_sqrt_inv = torch.sqrt(torch.inverse(D))
+            normalized_predefined_adj = D_sqrt_inv @predefined_NN_adj @ D_sqrt_inv
+            padded_A = torch.nn.functional.pad(normalized_predefined_adj, (0, self.windows, 0, self.windows), mode='constant', value=0).float()
 
-        self.edge_index, self.edge_weight = adj_to_edge_index_weight(self.dataset.adj)
-        self.edge_index = torch.tensor(self.edge_index).to(self.device)
-        self.edge_weight = torch.tensor(self.edge_weight).to(self.device)
+            self.edge_index, self.edge_weight = adj_to_edge_index_weight(padded_A.detach().cpu().numpy())
+            self.edge_index = torch.tensor(self.edge_index).to(self.device)
+            self.edge_weight = torch.tensor(self.edge_weight).to(self.device)
 
     def _process_one_batch(self, batch_x, batch_y, batch_x_date_enc, batch_y_date_enc):
         # inputs:
@@ -58,7 +64,6 @@ class DCRNNExperiment(Experiment):
         batch_y_date_enc = batch_y_date_enc.to(self.device).float()
         batch_x = batch_x.transpose(1,2)  # (B, N, T)
         
-
         ys = []
         for i in range(batch_x.shape[0]):  
             yi = self.model(batch_x[i],self.edge_index,self.edge_weight)

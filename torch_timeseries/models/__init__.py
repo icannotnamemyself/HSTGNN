@@ -16,3 +16,5 @@ from .BiSTGNNv3 import BiSTGNNv3
 from .BiSTGNNv4 import BiSTGNNv4
 from .BiSTGNNv5 import BiSTGNNv5
 from .BiSTGNNv6 import BiSTGNNv6
+from .BiSTGNNv7 import BiSTGNNv7
+from .BiSTGNNv8 import BiSTGNNv8
