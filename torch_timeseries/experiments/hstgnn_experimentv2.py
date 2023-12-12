@@ -10,7 +10,7 @@ from torch_timeseries.datasets.dataset import TimeSeriesDataset, TimeSeriesStati
 from torch_timeseries.datasets.splitter import SequenceSplitter
 from torch_timeseries.datasets.wrapper import MultiStepTimeFeatureSet
 from torch_timeseries.experiments.experiment import Experiment
-from torch_timeseries.models import  HSTGNN
+from torch_timeseries.models import  HSTGNNv2
 from torch_timeseries.nn.metric import TrendAcc, R2, Corr
 from torch.nn import MSELoss, L1Loss
 from torchmetrics import MetricCollection, R2Score, MeanSquaredError
@@ -25,8 +25,8 @@ from dataclasses import dataclass, asdict, field
 
 
 @dataclass
-class HSTGNNExperiment(Experiment):
-    model_type: str = "HSTGNN"
+class HSTGNNv2Experiment(Experiment):
+    model_type: str = "HSTGNNv2"
     
     gcn_type:str='weighted_han'
     graph_build_type:str='adaptive'
@@ -70,7 +70,7 @@ class HSTGNNExperiment(Experiment):
             temporal_embed_dim = 0
         else:
             temporal_embed_dim = 4
-        self.model = HSTGNN(
+        self.model = HSTGNNv2(
             seq_len=self.windows,
             num_nodes=self.dataset.num_features,
             temporal_embed_dim=temporal_embed_dim, # 4 for hour embedding

@@ -1,8 +1,10 @@
+import hashlib
 import random
 import time
 from typing import Dict, List, Type
 import numpy as np
 import torch
+import json
 import os
 from tqdm import tqdm
 from torch_timeseries.data.scaler import *
@@ -22,7 +24,7 @@ from torch.optim import Optimizer, Adam
 
 import wandb
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 
 
 @dataclass
@@ -32,7 +34,7 @@ class BiSTGNNv6Experiment(Experiment):
     remain_prob:float=1.0
     gcn_type:str='weighted_han'
     graph_build_type:str='adaptive'
-    output_layer_type:str='tcn6'
+    output_layer_type:str='tcn8'
     
     latent_dim:int=32
     gcn_layers:int=2
@@ -42,17 +44,18 @@ class BiSTGNNv6Experiment(Experiment):
     negative_slope:float = 0.2
     
     node_static_embed_dim :int = 16
-    dropout:float=0.3
+    dropout:float=0.0
     act:str='elu'
     tcn_channel:int=16
     rebuild_time:bool=True
     rebuild_space:bool=True
-    tcn_layers:int=5
+    tcn_layers:int = 5
     dilated_factor:int = 2
     self_loop_eps:float= 0.1
     without_tn_module:bool = False
     without_gcn:bool = False
-    
+    d0 : int = 1
+    kernel_set : List[int] = field(default_factory=lambda:[2,3,6,7])
     
     def reproducible(self, seed):
         # for reproducibility
@@ -68,7 +71,25 @@ class BiSTGNNv6Experiment(Experiment):
         torch.backends.cudnn.benchmark = False
         torch.backends.cudnn.determinstic = True
 
-    
+
+    def _run_identifier(self, seed) -> str:
+        ident = self.result_related_config
+        ident["seed"] = seed
+        # only influence the evluation result, not included here
+        ident['invtrans_loss'] = False
+        
+        if self.output_layer_type != 'tcn8':
+            del ident['d0'] 
+            del ident['kernel_set']
+            print("delete d0")
+
+        ident_md5 = hashlib.md5(
+            json.dumps(ident, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+
+        return str(ident_md5)
+
+
     
     def _init_model(self):
         predefined_NN_adj = None
@@ -111,7 +132,8 @@ class BiSTGNNv6Experiment(Experiment):
             act=self.act,
             output_layer_type=self.output_layer_type,
             self_loop_eps=self.self_loop_eps,
-            without_tn_module=self.without_tn_module
+            without_tn_module=self.without_tn_module,
+            kernel_set=self.kernel_set
         )
         self.model = self.model.to(self.device)
 
@@ -141,6 +163,8 @@ def main():
         batch_size=64,
         device="cuda:0",
         windows=168,
+        output_layer_type='tcn6',
+        heads=2,
     )
     # exp.config_wandb(
     #     "project",

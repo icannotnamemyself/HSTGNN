@@ -121,13 +121,22 @@ class TCN(nn.Module):
 
         output.shape: (B, Cout, N, out_seq_len)
         """
+        
+
         batch, _, n_nodes, seq_len = x.shape
         assert seq_len == self.seq_len, f"Sequence length {seq_len} should be {self.seq_len}"
         
         if seq_len < self.receptive_field:
             x = nn.functional.pad(x, (self.receptive_field - seq_len, 0, 0, 0))
+
+        origin = x
         skip = self.skip0(F.dropout(x, self.dropout, training=self.training))
         for i in range(self.num_layers):
+            seq_last = x[:,:,:,-1:].detach()
+            x = x - seq_last
+
+            
+            
             residual = x
             filter = self.filter_convs[i](x)
             filter = torch.tanh(filter)
@@ -135,7 +144,7 @@ class TCN(nn.Module):
             gate = torch.sigmoid(gate)
             x = filter * gate
             x = F.dropout(x, self.dropout, training=self.training)
-            s = x # (b , c , N, p)
+            s = x # (n , 1 , m , p)
             s = self.skip_convs[i](s) 
             skip = s + skip
 
@@ -144,6 +153,9 @@ class TCN(nn.Module):
 
             x = self.norms[i](x,self.idx)
             
+            
+            x = x + seq_last
+        
         skip = self.skipE(x) + skip
         x = F.elu(skip)
             

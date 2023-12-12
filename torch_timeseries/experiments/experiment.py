@@ -43,12 +43,12 @@ import codecs
 
 
 
-class Task(Enum):
-    SingleStepForecast : str = "single_step_forecast"
-    MultiStepForecast : str = "multi_steps_forecast"
-    Imputation : str = "imputation"
-    Classification : str = "classifation"
-    AbnomalyDetection : str = "abnormaly_detection"
+# class Task(Enum):
+#     SingleStepForecast : str = "single_step_forecast"
+#     MultiStepForecast : str = "multi_steps_forecast"
+#     Imputation : str = "imputation"
+#     Classification : str = "classifation"
+#     AbnomalyDetection : str = "abnormaly_detection"
     
 
 @dataclass
@@ -58,7 +58,7 @@ class ResultRelatedSettings:
     model_type: str = ""
     scaler_type: str = "StandarScaler"
     loss_func_type: str = "mse"
-    batch_size: int = 128
+    batch_size: int = 32
     lr: float = 0.0003
     l2_weight_decay: float = 0.0005
     epochs: int = 100
@@ -510,7 +510,11 @@ class Experiment(Settings):
         for name, metric_value in test_result.items():
             if self._use_wandb():
                 wandb.run.summary["test_" + name] = metric_value
-            
+                result = {}
+                for name,value in test_result.items():
+                    result['val_' + name] = value
+                wandb.log(result, step=self.current_epoch)
+
         self._run_print(f"test_results: {test_result}")
         return test_result
 
@@ -595,6 +599,10 @@ class Experiment(Settings):
         for name, metric_value in val_result.items():
             if self._use_wandb():
                 wandb.run.summary["val_" + name] = metric_value
+                result = {}
+                for name,value in val_result.items():
+                    result['val_' + name] = value
+                wandb.log(result, step=self.current_epoch)
 
         self._run_print(f"vali_results: {val_result}")
         return val_result
@@ -648,7 +656,6 @@ class Experiment(Settings):
 
     def _resume_run(self, seed):
         # only train loader rshould be checkedpoint to keep the validation and test consistency
-
         run_checkpoint_filepath = os.path.join(self.run_save_dir, f"run_checkpoint.pth")
         print(f"resuming from {run_checkpoint_filepath}")
 
@@ -725,7 +732,7 @@ class Experiment(Settings):
             # evaluate on val set
             result = self._val()
             # test
-            self._test()
+            test_result = self._test()
 
             self.current_epoch = self.current_epoch + 1
             self.early_stopper(result[self.loss_func_type], model=self.model)

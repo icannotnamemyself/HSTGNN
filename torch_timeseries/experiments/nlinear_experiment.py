@@ -29,13 +29,16 @@ class NLinearExperiment(Experiment):
     model_type: str = "NLinear"
 
     individual : bool = False
-
+    normalization : bool = True
+    
+    
     def _init_model(self):
         self.model = NLinear(
             seq_len=self.windows,
             pred_len=self.pred_len,
             enc_in=self.dataset.num_features,
             individual=self.individual,
+            normalization=self.normalization
         )
         self.model = self.model.to(self.device)
 

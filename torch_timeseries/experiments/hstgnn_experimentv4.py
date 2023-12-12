@@ -10,7 +10,7 @@ from torch_timeseries.datasets.dataset import TimeSeriesDataset, TimeSeriesStati
 from torch_timeseries.datasets.splitter import SequenceSplitter
 from torch_timeseries.datasets.wrapper import MultiStepTimeFeatureSet
 from torch_timeseries.experiments.experiment import Experiment
-from torch_timeseries.models import  HSTGNN
+from torch_timeseries.models import  HSTGNNv4
 from torch_timeseries.nn.metric import TrendAcc, R2, Corr
 from torch.nn import MSELoss, L1Loss
 from torchmetrics import MetricCollection, R2Score, MeanSquaredError
@@ -25,12 +25,12 @@ from dataclasses import dataclass, asdict, field
 
 
 @dataclass
-class HSTGNNExperiment(Experiment):
-    model_type: str = "HSTGNN"
+class HSTGNNv4Experiment(Experiment):
+    model_type: str = "HSTGNNv4"
     
-    gcn_type:str='weighted_han'
-    graph_build_type:str='adaptive'
-    output_layer_type:str='tcn8'
+    gcn_type:str='weighted_han_update'
+    graph_build_type:str='mlpsim'
+    conv_type:str='all'
     
     latent_dim:int=16
     gcn_layers:int=2
@@ -38,6 +38,7 @@ class HSTGNNExperiment(Experiment):
     
     heads:int = 1
     negative_slope:float = 0.2
+    num_layers:int = 3
     
     node_static_embed_dim :int = 16
     dropout:float=0.0
@@ -52,6 +53,7 @@ class HSTGNNExperiment(Experiment):
     without_gcn:bool = False
     d0 : int = 2
     kernel_set : List[int] = field(default_factory=lambda:[2,3,6,7])
+    normalization : bool = True
 
     def _init_model(self):
         predefined_NN_adj = None
@@ -66,14 +68,10 @@ class HSTGNNExperiment(Experiment):
         else:
             padded_A = None
 
-        if isinstance(self.dataset, PeMS_D7):
-            temporal_embed_dim = 0
-        else:
-            temporal_embed_dim = 4
-        self.model = HSTGNN(
+        self.model = HSTGNNv4(
+            normalization=self.normalization,
             seq_len=self.windows,
             num_nodes=self.dataset.num_features,
-            temporal_embed_dim=temporal_embed_dim, # 4 for hour embedding
             latent_dim=self.latent_dim,
             predefined_adj=padded_A,
             heads=self.heads,
@@ -86,13 +84,13 @@ class HSTGNNExperiment(Experiment):
             rebuild_space=self.rebuild_space,
             out_seq_len=self.pred_len,
             node_static_embed_dim=self.node_static_embed_dim,
-            tcn_layers=self.tcn_layers,
             dilated_factor=self.dilated_factor,
             tcn_channel=self.tcn_channel,
             act=self.act,
-            output_layer_type=self.output_layer_type,
             without_tn_module=self.without_tn_module,
-            without_gcn=self.without_gcn
+            without_gcn=self.without_gcn,
+            conv_type=self.conv_type,
+            num_layers=self.num_layers
         )
         self.model = self.model.to(self.device)
 
@@ -109,13 +107,13 @@ class HSTGNNExperiment(Experiment):
         batch_x_date_enc = batch_x_date_enc.to(self.device).float()
         batch_y_date_enc = batch_y_date_enc.to(self.device).float()
         batch_x = batch_x.transpose(1,2)
-        outputs = self.model(batch_x,batch_x_date_enc)  # torch.Size([batch_size, num_nodes])
+        outputs = self.model(batch_x,batch_x_date_enc)  # torch.Size([batch_size,O, num_nodes])
         # single step prediction
         return outputs, batch_y
 
 
 def main():
-    exp = HSTGNNExperiment(
+    exp = HSTGNNv4Experiment(
         dataset_type="DummyDatasetGraph",
         data_path="./data",
         optm_type="Adam",

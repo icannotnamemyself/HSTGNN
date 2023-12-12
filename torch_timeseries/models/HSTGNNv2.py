@@ -168,6 +168,19 @@ class HSTGNN(nn.Module):
                 d0=d0,
                 kernel_set=kernel_set,
             )
+        elif output_layer_type == 'nlinear_output1':
+            self.output_layer = NlinearOuputLayer(
+                input_seq_len=seq_len,
+                in_dim=self.latent_dim,
+                num_nodes=self.num_nodes,
+                out_seq_len=self.out_seq_len,
+                tcn_layers=tcn_layers,
+                dilated_factor=dilated_factor,
+                in_channel=out_channels,
+                tcn_channel=tcn_channel,
+                d0=d0,
+                kernel_set=kernel_set,
+            )
 
         else:
             raise NotImplementedError(f"output layer type {output_layer_type} not implemented")
@@ -180,6 +193,10 @@ class HSTGNN(nn.Module):
         out:  (B, N, latent_dim)
         """
 
+        seq_last = x[:,:,-1:].detach()
+        x = x - seq_last
+
+        
         Xs = self.spatial_encoder(x)
         Xt = self.temporal_encoder(x.transpose(1, 2), x_enc_mark)
         X = torch.concat([Xs, Xt], dim=1)  # (B, N+T, latent_dim)
@@ -195,17 +212,21 @@ class HSTGNN(nn.Module):
         
         
         outputs = list()
-        if self.rebuild_space:
-            n_output = self.feature_rebuild(Xs)  # (B, N, T)
-            outputs.append(n_output.unsqueeze(1))
-        if self.rebuild_time:
-            t_output,_ = self.time_rebuild(Xt)  # (B, T, N)
-            outputs.append(t_output.unsqueeze(1).transpose(2, 3))
-        outputs.append(x.unsqueeze(1))  # （B, 1/2/3, N, T)
+        # if self.rebuild_space:
+        #     n_output = self.feature_rebuild(Xs)  # (B, N, T)
+        #     outputs.append(n_output.unsqueeze(1))
+        # if self.rebuild_time:
+        #     t_output,_ = self.time_rebuild(Xt)  # (B, T, N)
+        #     outputs.append(t_output.unsqueeze(1).transpose(2, 3))
+        outputs.append(Xs)  # （B, 1/2/3, N, T)
+        outputs.append(Xt)  # （B, 1/2/3, N, T)
+        outputs.append(x)  # （B, 1/2/3, N, T)
 
         # output module
-        X = torch.cat(outputs, dim=1)  # （B, 1/2/3, N, T)
-        X = self.output_layer(X)  # (B, N+T, 1)
+        # X = torch.cat(outputs, dim=1)  # （B, 1/2/3, N, T)
+        X = self.output_layer(outputs)  # (B, N+T, 1)
+        
+        X = (X.transpose(1,2) + seq_last).transpose(1,2)
 
         return X
 
@@ -354,10 +375,12 @@ class TemporalEncoder(nn.Module):
             input_dim = num_nodes + static_embed_dim + temporal_embed_dim
         else:
             input_dim = num_nodes + static_embed_dim
-        self.temporal_projection = nn.GRU(
-            input_dim,latent_dim, batch_first=True
+        # self.temporal_projection = nn.GRU(
+        #     input_dim,latent_dim, batch_first=True
+        # )
+        self.temporal_projection = nn.Linear(
+            input_dim,latent_dim
         )
-
     def forward(self, x, x_enc_mark):
         """
         x :  (B, T, N)
@@ -377,7 +400,7 @@ class TemporalEncoder(nn.Module):
             x = torch.concat((x, static_embeding), dim=2)
 
         # 对combined_x进行进一步处理和计算
-        temporal_encode , _= self.temporal_projection(x)
+        temporal_encode = self.temporal_projection(x)
         return temporal_encode
 
 

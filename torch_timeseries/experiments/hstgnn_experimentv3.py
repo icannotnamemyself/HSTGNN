@@ -10,7 +10,7 @@ from torch_timeseries.datasets.dataset import TimeSeriesDataset, TimeSeriesStati
 from torch_timeseries.datasets.splitter import SequenceSplitter
 from torch_timeseries.datasets.wrapper import MultiStepTimeFeatureSet
 from torch_timeseries.experiments.experiment import Experiment
-from torch_timeseries.models import  HSTGNN
+from torch_timeseries.models import  HSTGNNv3
 from torch_timeseries.nn.metric import TrendAcc, R2, Corr
 from torch.nn import MSELoss, L1Loss
 from torchmetrics import MetricCollection, R2Score, MeanSquaredError
@@ -25,12 +25,13 @@ from dataclasses import dataclass, asdict, field
 
 
 @dataclass
-class HSTGNNExperiment(Experiment):
-    model_type: str = "HSTGNN"
+class HSTGNNv3Experiment(Experiment):
+    model_type: str = "HSTGNNv3"
     
     gcn_type:str='weighted_han'
     graph_build_type:str='adaptive'
     output_layer_type:str='tcn8'
+    conv_type:str='all'
     
     latent_dim:int=16
     gcn_layers:int=2
@@ -52,6 +53,7 @@ class HSTGNNExperiment(Experiment):
     without_gcn:bool = False
     d0 : int = 2
     kernel_set : List[int] = field(default_factory=lambda:[2,3,6,7])
+    normalization : bool = True
 
     def _init_model(self):
         predefined_NN_adj = None
@@ -70,7 +72,8 @@ class HSTGNNExperiment(Experiment):
             temporal_embed_dim = 0
         else:
             temporal_embed_dim = 4
-        self.model = HSTGNN(
+        self.model = HSTGNNv3(
+            normalization=self.normalization,
             seq_len=self.windows,
             num_nodes=self.dataset.num_features,
             temporal_embed_dim=temporal_embed_dim, # 4 for hour embedding
@@ -92,7 +95,8 @@ class HSTGNNExperiment(Experiment):
             act=self.act,
             output_layer_type=self.output_layer_type,
             without_tn_module=self.without_tn_module,
-            without_gcn=self.without_gcn
+            without_gcn=self.without_gcn,
+            conv_type=self.conv_type
         )
         self.model = self.model.to(self.device)
 
@@ -115,7 +119,7 @@ class HSTGNNExperiment(Experiment):
 
 
 def main():
-    exp = HSTGNNExperiment(
+    exp = HSTGNNv3Experiment(
         dataset_type="DummyDatasetGraph",
         data_path="./data",
         optm_type="Adam",

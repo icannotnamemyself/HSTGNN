@@ -14,6 +14,7 @@ from torch_timeseries.layers.nlinear_output import NlinearOuputLayer
 from torch_timeseries.layers.weighted_han import WeightedHAN
 from torch_timeseries.layers.weighted_han_update import WeightedHAN as WeightedHANUpdate
 from torch_timeseries.layers.weighted_han_update2 import WeightedHAN as WeightedHANUpdate2
+from torch_timeseries.layers.weighted_han_update3 import WeightedHAN as WeightedHANUpdate3
 from torch_timeseries.layers.graphsage import MyGraphSage, MyFAGCN
 
 
@@ -44,7 +45,9 @@ class HSTGNN(nn.Module):
         without_tn_module=False,
         without_gcn=False,
         d0=2,
-        kernel_set=[2,3,6,7]
+        kernel_set=[2,3,6,7],
+        normalization=True,
+        conv_type='all'
     ):
         super(HSTGNN, self).__init__()
 
@@ -57,7 +60,8 @@ class HSTGNN(nn.Module):
         self.self_loop_eps = self_loop_eps
         self.without_tn_module = without_tn_module
         self.kernel_set = kernel_set
-
+        self.normalization =normalization
+        self.conv_type = conv_type
         self.spatial_encoder = SpatialEncoder(
             seq_len,
             num_nodes,
@@ -99,6 +103,7 @@ class HSTGNN(nn.Module):
                         gcn_layers,
                         graph_build_type=graph_build_type,
                         graph_conv_type=graph_conv_type,
+                        conv_type=conv_type,
                         heads=self.heads,
                         negative_slope=self.negative_slope,
                         dropout=dropout,
@@ -179,6 +184,9 @@ class HSTGNN(nn.Module):
         in :  (B, N, T)
         out:  (B, N, latent_dim)
         """
+        if self.normalization:
+            seq_last = x[:,:,-1:].detach()
+            x = x - seq_last
 
         Xs = self.spatial_encoder(x)
         Xt = self.temporal_encoder(x.transpose(1, 2), x_enc_mark)
@@ -205,7 +213,11 @@ class HSTGNN(nn.Module):
 
         # output module
         X = torch.cat(outputs, dim=1)  # （B, 1/2/3, N, T)
-        X = self.output_layer(X)  # (B, N+T, 1)
+        X = self.output_layer(X)  # (B, O, N)
+        
+        
+        if self.normalization:
+            X = (X.transpose(1,2) + seq_last).transpose(1,2)
 
         return X
 
@@ -213,7 +225,7 @@ class HSTGNN(nn.Module):
 class TNModule(nn.Module):
     def __init__(
         self, num_nodes, seq_len, latent_dim, gcn_layers, graph_build_type="adaptive",
-        graph_conv_type='fastgcn5',heads=1,negative_slope=0.2,dropout=0.0,act='elu',self_loop_eps=0.5,without_gcn=False,
+        graph_conv_type='fastgcn5',conv_type='all',heads=1,negative_slope=0.2,dropout=0.0,act='elu',self_loop_eps=0.5,without_gcn=False,
         predefined_adj=None
     ) -> None:
         super().__init__()
@@ -226,6 +238,7 @@ class TNModule(nn.Module):
         self.act=  act
         self.self_loop_eps = self_loop_eps
         self.without_gcn =without_gcn
+        self.conv_type = conv_type
         if graph_build_type == "adaptive":
             self.graph_constructor = STGraphConstructor(self_loop_eps=self.self_loop_eps)
         elif graph_build_type == "predefined_adaptive":
@@ -234,6 +247,16 @@ class TNModule(nn.Module):
         elif graph_build_type == "fully_connected":
             self.graph_constructor = STGraphConstructor(predefined_adj=None, adaptive=False,self_loop_eps=self.self_loop_eps)
             print("graph_build_type is fully_connected")
+        elif graph_build_type == "mlp":
+            self.graph_constructor = MLPConstructor(predefined_adj=predefined_adj,latent_dim=latent_dim,self_loop_eps=self.self_loop_eps)
+        elif graph_build_type == "mlp2":
+            self.graph_constructor = MLPConstructor2(predefined_adj=predefined_adj,latent_dim=latent_dim,self_loop_eps=self.self_loop_eps)
+            print("graph_build_type dis mlp2")
+
+        elif graph_build_type == "mlpsim":
+            self.graph_constructor = MLPSimConstructor(predefined_adj=predefined_adj,latent_dim=latent_dim,self_loop_eps=self.self_loop_eps)
+            print("graph_build_type dis mlpsim")
+
 
         # if graph_conv_type == 'gcn':
         #     pass
@@ -257,13 +280,19 @@ class TNModule(nn.Module):
                 self.graph_conv = WeightedHANUpdate(
                     num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
                     heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
-                    conv_type='all'
+                    conv_type=self.conv_type
                 )
             elif graph_conv_type == 'weighted_han_update2':
                 self.graph_conv = WeightedHANUpdate2(
                     num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
                     heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
                     conv_type='all'
+                )
+            elif graph_conv_type == 'weighted_han_update3':
+                self.graph_conv = WeightedHANUpdate3(
+                    num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
+                    heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
+                    conv_type=self.conv_type
                 )
 
 
@@ -437,4 +466,303 @@ class STGraphConstructor(nn.Module):
             batch_indices.append(edge_index_i)
             batch_values.append(edge_weights)
         return adj, batch_indices, batch_values
+
+
+
+class MLPConstructor(nn.Module):
+    def __init__(self, predefined_adj=None, latent_dim=32,self_loop_eps=0.5):
+        super(MLPConstructor, self).__init__()
+        self.predefined_adj =predefined_adj
+        # self.self_loop_eps = self_loop_eps
+        
+        
+        self.relation_mlp_model = nn.ModuleDict({
+            'ss': nn.Linear(latent_dim+latent_dim, 1),
+            'tt': nn.Linear(latent_dim+latent_dim, 1),
+            'st': nn.Linear(latent_dim+latent_dim, 1),
+            'ts': nn.Linear(latent_dim+latent_dim, 1),
+        })
+        self.mask_mlp_model = nn.ModuleDict({
+            'ss': nn.Linear(latent_dim+latent_dim, 1),
+            'tt': nn.Linear(latent_dim+latent_dim, 1),
+            'st': nn.Linear(latent_dim+latent_dim, 1),
+            'ts': nn.Linear(latent_dim+latent_dim, 1),
+        })
+    
+    def build_sub_graph(self, x1, x2, relation_name):
+        B, N1, D = x1.size()
+        B ,N2, D = x2.size()
+        # 扩展 x1 和 x2 以便于拼接
+        x1_expanded = x1.unsqueeze(2)  # 维度变为 [B, N1, 1, D]
+        x2_expanded = x2.unsqueeze(1)  # 维度变为 [B, 1, N2, D]
+
+        # 在拼接维度上重复以匹配对方的维度
+        x1_tiled = x1_expanded.repeat(1, 1, N2, 1)  # [B, N1, N2, D]
+        x2_tiled = x2_expanded.repeat(1, N1, 1, 1)  # [B, N1, N2, D]
+        # 拼接 xs 和 xt
+        x_combined = torch.cat((x1_tiled, x2_tiled), dim=-1)  # [B, N, O, 2D]
+        # 重塑并应用 MLP
+        x_combined = x_combined.reshape(B, N1 * N2, -1)  # [B, N*O, 2D]
+        
+        adj = self.relation_mlp_model[relation_name](x_combined)  # [B, N*O, 1]
+        adj = adj.reshape(B, N1, N2)  # [B, N, O]
+        
+        mask = self.mask_mlp_model[relation_name](x_combined) # [B, N*O, 1]
+        mask = torch.relu(mask)
+        mask = mask.reshape(B, N1, N2)  # [B, N, O]
+
+        
+        # output = self.mlp_output(xi)  # (B, N, O)
+        return adj, mask
+
+    def build_graph(self, spatial_nodes, temporal_nodes):
+        
+        B, N, D = spatial_nodes.size()
+        _, T, _ = temporal_nodes.size()
+        
+        ss_adj, ss_mask = self.build_sub_graph(spatial_nodes, spatial_nodes,'ss' )
+        tt_adj, tt_mask = self.build_sub_graph(temporal_nodes, temporal_nodes,'tt' )
+        st_adj, st_mask  = self.build_sub_graph(spatial_nodes, temporal_nodes,'st' )
+        ts_adj, ts_mask = self.build_sub_graph(temporal_nodes, spatial_nodes,'ts' )
+        upper_row = torch.cat([ss_adj, st_adj], dim=-1)
+        lower_row = torch.cat([ts_adj, tt_adj], dim=-1)
+        # 然后垂直拼接这两行以形成最终的大矩阵
+        adj_matrix = torch.cat([upper_row, lower_row], dim=-2)
+
+
+
+        mask_upper_row = torch.cat([ss_mask, st_mask], dim=-1)
+        mask_lower_row = torch.cat([ts_mask, tt_mask], dim=-1)
+
+        # 然后垂直拼接这两行以形成最终的大矩阵
+        mask = torch.cat([mask_upper_row, mask_lower_row], dim=-2)
+
+        return adj_matrix, mask
+
+
+
+    def forward(
+        self, spatial_nodes, temporal_nodes
+    ) -> Tuple[torch.Tensor, List[torch.Tensor], List[torch.Tensor]]:
+        # spatial nodes: (B, N, D)
+        # temporal nodes: (B, T, D)
+        # A : (N,T), (T , N)
+        B, N, D = spatial_nodes.size()
+        _, T, _ = temporal_nodes.size()
+        
+        _adj, mask = self.build_graph(spatial_nodes, temporal_nodes)
+        # adj = _adj * mask
+        adj = torch.tanh(_adj * mask)
+
+        # predefined adjcent matrix        
+        if self.predefined_adj is not None:
+            # avoid inplace operation 
+            adj = adj + self.predefined_adj
+        
+
+        batch_indices = list()
+        batch_values = list()
+        for bi in range(B):
+            source_nodes, target_nodes = adj[bi].nonzero().t()
+            edge_weights = adj[bi][source_nodes, target_nodes]
+            edge_index_i = torch.stack([source_nodes, target_nodes], dim=0)
+            batch_indices.append(edge_index_i)
+            batch_values.append(edge_weights)
+        return adj, batch_indices, batch_values
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+class MLPConstructor2(nn.Module):
+    def __init__(self, predefined_adj=None, latent_dim=32,self_loop_eps=0.5):
+        super(MLPConstructor2, self).__init__()
+        self.predefined_adj =predefined_adj
+        # self.self_loop_eps = self_loop_eps
+        
+        
+        self.relation_mlp_model = nn.ModuleDict({
+            'ss': nn.Linear(latent_dim+latent_dim, 1),
+            'tt': nn.Linear(latent_dim+latent_dim, 1),
+            'st': nn.Linear(latent_dim+latent_dim, 1),
+            'ts': nn.Linear(latent_dim+latent_dim, 1),
+        })
+
+    def build_sub_graph(self, x1, x2, relation_name):
+        B, N1, D = x1.size()
+        B ,N2, D = x2.size()
+        # 扩展 x1 和 x2 以便于拼接
+        x1_expanded = x1.unsqueeze(2)  # 维度变为 [B, N1, 1, D]
+        x2_expanded = x2.unsqueeze(1)  # 维度变为 [B, 1, N2, D]
+
+        # 在拼接维度上重复以匹配对方的维度
+        x1_tiled = x1_expanded.repeat(1, 1, N2, 1)  # [B, N1, N2, D]
+        x2_tiled = x2_expanded.repeat(1, N1, 1, 1)  # [B, N1, N2, D]
+        # 拼接 xs 和 xt
+        x_combined = torch.cat((x1_tiled, x2_tiled), dim=-1)  # [B, N, O, 2D]
+        # 重塑并应用 MLP
+        x_combined = x_combined.reshape(B, N1 * N2, -1)  # [B, N*O, 2D]
+        
+        adj = self.relation_mlp_model[relation_name](x_combined)  # [B, N*O, 1]
+        adj = adj.reshape(B, N1, N2)  # [B, N, O]
+
+        
+        # output = self.mlp_output(xi)  # (B, N, O)
+        return adj
+
+    def build_graph(self, spatial_nodes, temporal_nodes):
+        
+        B, N, D = spatial_nodes.size()
+        _, T, _ = temporal_nodes.size()
+        
+        ss_adj  = self.build_sub_graph(spatial_nodes, spatial_nodes,'ss' )
+        tt_adj  = self.build_sub_graph(temporal_nodes, temporal_nodes,'tt' )
+        st_adj  = self.build_sub_graph(spatial_nodes, temporal_nodes,'st' )
+        ts_adj  = self.build_sub_graph(temporal_nodes, spatial_nodes,'ts' )
+        upper_row = torch.cat([ss_adj, st_adj], dim=-1)
+        lower_row = torch.cat([ts_adj, tt_adj], dim=-1)
+        # 然后垂直拼接这两行以形成最终的大矩阵
+        adj_matrix = torch.cat([upper_row, lower_row], dim=-2)
+
+        return adj_matrix
+
+
+
+    def forward(
+        self, spatial_nodes, temporal_nodes
+    ) -> Tuple[torch.Tensor, List[torch.Tensor], List[torch.Tensor]]:
+        # spatial nodes: (B, N, D)
+        # temporal nodes: (B, T, D)
+        # A : (N,T), (T , N)
+        B, N, D = spatial_nodes.size()
+        _, T, _ = temporal_nodes.size()
+        
+        _adj = self.build_graph(spatial_nodes, temporal_nodes)
+        adj = torch.tanh(torch.relu(_adj))
+
+        # predefined adjcent matrix        
+        if self.predefined_adj is not None:
+            # avoid inplace operation 
+            adj = adj + self.predefined_adj
+        
+
+        batch_indices = list()
+        batch_values = list()
+        for bi in range(B):
+            source_nodes, target_nodes = adj[bi].nonzero().t()
+            edge_weights = adj[bi][source_nodes, target_nodes]
+            edge_index_i = torch.stack([source_nodes, target_nodes], dim=0)
+            batch_indices.append(edge_index_i)
+            batch_values.append(edge_weights)
+        return adj, batch_indices, batch_values
+
+
+
+
+
+
+
+
+
+
+
+class MLPSimConstructor(nn.Module):
+    def __init__(self, predefined_adj=None, latent_dim=32,self_loop_eps=0.5):
+        super(MLPSimConstructor, self).__init__()
+        self.predefined_adj =predefined_adj
+        # self.self_loop_eps = self_loop_eps
+        
+        self.relation_mlp_model = nn.ModuleDict({
+            'st': nn.Sequential(
+                    nn.Linear(latent_dim+latent_dim, latent_dim),
+                    nn.Sigmoid(),
+                    nn.Linear(latent_dim, 1),
+                ),
+            'ts': nn.Sequential(
+                    nn.Linear(latent_dim+latent_dim, latent_dim),
+                    nn.Sigmoid(),
+                    nn.Linear(latent_dim, 1),
+                ),
+        })
+
+    
+    def build_sub_graph(self, x1, x2, relation_name):
+        B, N1, D = x1.size()
+        B ,N2, D = x2.size()
+        # 扩展 x1 和 x2 以便于拼接
+        x1_expanded = x1.unsqueeze(2)  # 维度变为 [B, N1, 1, D]
+        x2_expanded = x2.unsqueeze(1)  # 维度变为 [B, 1, N2, D]
+
+        # 在拼接维度上重复以匹配对方的维度
+        x1_tiled = x1_expanded.repeat(1, 1, N2, 1)  # [B, N1, N2, D]
+        x2_tiled = x2_expanded.repeat(1, N1, 1, 1)  # [B, N1, N2, D]
+        # 拼接 xs 和 xt
+        x_combined = torch.cat((x1_tiled, x2_tiled), dim=-1)  # [B, N, O, 2D]
+        # 重塑并应用 MLP
+        x_combined = x_combined.reshape(B, N1 * N2, -1)  # [B, N*O, 2D]
+        
+        adj = self.relation_mlp_model[relation_name](x_combined)  # [B, N*O, 1]
+        adj = adj.reshape(B, N1, N2)  # [B, N, O]
+        
+        # output = self.mlp_output(xi)  # (B, N, O)
+        return adj 
+
+
+    def build_graph(self, spatial_nodes, temporal_nodes):
+        
+        B, N, D = spatial_nodes.size()
+        _, T, _ = temporal_nodes.size()
+        node_embs = torch.concat([spatial_nodes, temporal_nodes], dim=1)
+        adj = torch.einsum("bnf, bmf -> bnm", node_embs, node_embs) 
+
+        st_adj  = self.build_sub_graph(spatial_nodes, temporal_nodes,'st' )
+        ts_adj = self.build_sub_graph(temporal_nodes, spatial_nodes,'ts' )
+        adj[:, :N, N:] = st_adj
+        adj[:, N:, :N] = ts_adj
+        
+        return adj
+
+
+
+    def forward(
+        self, spatial_nodes, temporal_nodes
+    ) -> Tuple[torch.Tensor, List[torch.Tensor], List[torch.Tensor]]:
+        # spatial nodes: (B, N, D)
+        # temporal nodes: (B, T, D)
+        # A : (N,T), (T , N)
+        B, N, D = spatial_nodes.size()
+        _, T, _ = temporal_nodes.size()
+        
+        _adj = self.build_graph(spatial_nodes, temporal_nodes)
+        # adj = _adj * mask
+        adj = torch.tanh(torch.relu(_adj))
+
+        # predefined adjcent matrix        
+        if self.predefined_adj is not None:
+            # avoid inplace operation 
+            adj = adj + self.predefined_adj
+        
+
+        batch_indices = list()
+        batch_values = list()
+        for bi in range(B):
+            source_nodes, target_nodes = adj[bi].nonzero().t()
+            edge_weights = adj[bi][source_nodes, target_nodes]
+            edge_index_i = torch.stack([source_nodes, target_nodes], dim=0)
+            batch_indices.append(edge_index_i)
+            batch_values.append(edge_weights)
+        return adj, batch_indices, batch_values
+
+
 
