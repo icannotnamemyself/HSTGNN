@@ -5,12 +5,6 @@ from torch_timeseries.layers.heterostgcn5 import HeteroFASTGCN as HeteroFASTGCN5
 from torch_timeseries.layers.heterostgcn6 import HeteroFASTGCN as HeteroFASTGCN6
 from torch_timeseries.layers.han import HAN
 from torch_timeseries.layers.hgt import HGT
-from torch_timeseries.layers.tcn_output2 import TCNOuputLayer as TCNOuputLayer2
-from torch_timeseries.layers.tcn_output3 import TCNOuputLayer as TCNOuputLayer3
-from torch_timeseries.layers.tcn_output4 import TCNOuputLayer as TCNOuputLayer4
-from torch_timeseries.layers.tcn_output8 import TCNOuputLayer as TCNOuputLayer8
-from torch_timeseries.layers.tcn_output9_norm import TCNOuputLayer as TCNOuputLayer9
-from torch_timeseries.layers.tcn_output import TCNOuputLayer
 from torch_timeseries.layers.nlinear_output import NlinearOuputLayer
 from torch_timeseries.layers.weighted_han import WeightedHAN
 from torch_timeseries.layers.weighted_han_update import WeightedHAN as WeightedHANUpdate
@@ -18,9 +12,7 @@ from torch_timeseries.layers.weighted_han_update2 import WeightedHAN as Weighted
 from torch_timeseries.layers.weighted_han_update3 import WeightedHAN as WeightedHANUpdate3
 from torch_timeseries.layers.weighted_han_update4 import WeightedHAN as WeightedHANUpdate4
 from torch_timeseries.layers.weighted_han_update5 import WeightedHAN as WeightedHANUpdate5
-from torch_timeseries.layers.weighted_han_update6 import WeightedHAN as WeightedHANUpdate6
-from torch_timeseries.layers.weighted_han_update7 import WeightedHAN as WeightedHANUpdate7
-from torch_timeseries.layers.weighted_han_update8 import WeightedHAN as WeightedHANUpdate8
+from torch_timeseries.layers.HSTGAttn import HSTGAttn as HSTGAttn
 from torch_timeseries.layers.graphsage import MyGraphSage, MyFAGCN
 
 
@@ -30,7 +22,7 @@ class HSTGNN(nn.Module):
         seq_len,
         num_nodes,
         temporal_embed_dim,
-        graph_build_type="mlpsim", # "predefined_adaptive"
+        graph_build_type="adaptive", # "predefined_adaptive"
         graph_conv_type="weighted_han_update",
         output_layer_type='tcn8',
         heads=1,
@@ -38,6 +30,10 @@ class HSTGNN(nn.Module):
         gcn_layers=2,
         rebuild_time=True,
         rebuild_space=True,
+        rebuild_nss=True,
+        rebuild_ntt=True,
+        rebuild_nts=True,
+        rebuild_nst=True,
         node_static_embed_dim=16,
         latent_dim=16,
         tcn_layers=5,
@@ -85,7 +81,11 @@ class HSTGNN(nn.Module):
 
         self.rebuild_time = rebuild_time
         self.rebuild_space = rebuild_space
-
+        self.rebuild_nss = rebuild_nss
+        self.rebuild_ntt = rebuild_ntt
+        self.rebuild_nst = rebuild_nst
+        self.rebuild_nts = rebuild_nts
+        
         # Rebuild Module
         if rebuild_space:
             self.feature_rebuild = nn.Sequential(
@@ -96,6 +96,31 @@ class HSTGNN(nn.Module):
 
         if rebuild_time:
             self.time_rebuild = nn.GRU(latent_dim, num_nodes, batch_first=True)
+        
+        if rebuild_nss:
+            self.nss_rebuild = nn.Sequential(
+                nn.Linear(latent_dim, seq_len),
+                torch.nn.ELU(),
+                nn.Linear(seq_len, seq_len),
+            )
+        if rebuild_ntt:
+            self.ntt_rebuild = nn.GRU(latent_dim, num_nodes, batch_first=True)
+
+        if rebuild_nst:
+            self.nst_rebuild = nn.GRU(latent_dim, num_nodes, batch_first=True)
+            
+        if rebuild_nts:
+            self.nts_rebuild = nn.Sequential(
+                nn.Linear(latent_dim, seq_len),
+                torch.nn.ELU(),
+                nn.Linear(seq_len, seq_len),
+            )
+            
+            
+        self.activation = torch.nn.GELU()
+            
+        
+        
         
         self.tn_modules = nn.ModuleList()
         
@@ -125,50 +150,18 @@ class HSTGNN(nn.Module):
             out_channels = out_channels + 1
         if rebuild_time:
             out_channels = out_channels + 1
-        if output_layer_type == 'tcn6':
-            if out_seq_len == 1:
-                self.output_layer = TCNOuputLayer(
-                    input_seq_len=seq_len,
-                    out_seq_len=self.out_seq_len,
-                    tcn_layers=tcn_layers,
-                    dilated_factor=dilated_factor,
-                    in_channel=out_channels,
-                    tcn_channel=tcn_channel,
-                )
-            else:
-                self.output_layer = TCNOuputLayer4(
-                    input_seq_len=seq_len,
-                    num_nodes=self.num_nodes,
-                    out_seq_len=self.out_seq_len,
-                    tcn_layers=tcn_layers,
-                    dilated_factor=dilated_factor,
-                    in_channel=out_channels,
-                    tcn_channel=tcn_channel,
-                )
-        elif output_layer_type == 'tcn7':
-            self.output_layer = TCNOuputLayer4(
-                input_seq_len=seq_len,
-                num_nodes=self.num_nodes,
-                out_seq_len=self.out_seq_len,
-                tcn_layers=tcn_layers,
-                dilated_factor=dilated_factor,
-                in_channel=out_channels,
-                tcn_channel=tcn_channel,
-            )
-        elif output_layer_type == 'tcn8':
-            self.output_layer = TCNOuputLayer8(
-                input_seq_len=seq_len,
-                num_nodes=self.num_nodes,
-                out_seq_len=self.out_seq_len,
-                tcn_layers=tcn_layers,
-                dilated_factor=dilated_factor,
-                in_channel=out_channels,
-                tcn_channel=tcn_channel,
-                d0=d0,
-                kernel_set=kernel_set,
-            )
-        elif output_layer_type == 'tcn9':
-            self.output_layer = TCNOuputLayer9(
+        # if rebuild_nss:
+        #     out_channels = out_channels + 1
+        # if rebuild_ntt:
+        #     out_channels = out_channels + 1
+        # if rebuild_nst:
+        #     out_channels = out_channels + 1
+        # if rebuild_nts:
+        #     out_channels = out_channels + 1
+
+        
+        if output_layer_type == 'tcn8':
+            self.output_layer = TCNOutputLayer(
                 input_seq_len=seq_len,
                 num_nodes=self.num_nodes,
                 out_seq_len=self.out_seq_len,
@@ -202,7 +195,7 @@ class HSTGNN(nn.Module):
         
         if not self.without_tn_module:
             for i in range(1):
-                X = self.tn_modules[i](X)  # (B, N+T, latent_dim)
+                X, (nss, ntt, nst, nts), (smt_s, smt_t) = self.tn_modules[i](X)  # (B, N+T, latent_dim)
 
         # rebuild module
         Xs = X[:, : self.num_nodes, :]  # (B, N, D)
@@ -212,17 +205,30 @@ class HSTGNN(nn.Module):
         
         outputs = list()
         if self.rebuild_space:
-            n_output = self.feature_rebuild(Xs)  # (B, N, T)
+            n_output = self.feature_rebuild(Xs)   # (B, N, T)
             outputs.append(n_output.unsqueeze(1))
         if self.rebuild_time:
             t_output,_ = self.time_rebuild(Xt)  # (B, T, N)
             outputs.append(t_output.unsqueeze(1).transpose(2, 3))
+        
+        # if self.rebuild_nss:
+        #     nss_output = self.nss_rebuild(nss)   # (B, N, T)
+        #     outputs.append(nss_output.unsqueeze(1))
+        # if self.rebuild_nst:
+        #     nst_output, _ = self.nst_rebuild(nst)  # (B, T, N)
+        #     outputs.append(nst_output.unsqueeze(1).transpose(2, 3))
+        # if self.rebuild_nts:
+        #     nts_output = self.nts_rebuild(nts)   # (B, N, T)
+        #     outputs.append(nts_output.unsqueeze(1))
+        # if self.rebuild_ntt:
+        #     ntt_output, _  = self.ntt_rebuild(ntt)  # (B, T, N)
+        #     outputs.append(ntt_output.unsqueeze(1).transpose(2, 3))
+
         outputs.append(x.unsqueeze(1))  # （B, 1/2/3, N, T)
 
         # output module
-        X = torch.cat(outputs, dim=1)  # （B, 1/2/3, N, T)
+        X = self.activation(torch.cat(outputs, dim=1))  # （B, 1/2/3, N, T)
         X = self.output_layer(X)  # (B, O, N)
-        
         
         if self.normalization:
             X = (X.transpose(1,2) + seq_last).transpose(1,2)
@@ -259,17 +265,11 @@ class TNModule(nn.Module):
             self.graph_constructor = MLPConstructor(predefined_adj=predefined_adj,latent_dim=latent_dim,self_loop_eps=self.self_loop_eps)
         elif graph_build_type == "mlp2":
             self.graph_constructor = MLPConstructor2(predefined_adj=predefined_adj,latent_dim=latent_dim,self_loop_eps=self.self_loop_eps)
-            print("graph_build_type dis mlp2")
+            print("graph_build_type is mlp2")
 
         elif graph_build_type == "mlpsim":
-            self.graph_constructor = MLPSimConstructor(predefined_adj=predefined_adj,latent_dim=latent_dim,tt_mask=False)
-            print("graph_build_type dis mlpsim")
-        elif graph_build_type == "mlpsim_tt_mask":
-            self.graph_constructor = MLPSimConstructor(predefined_adj=predefined_adj,latent_dim=latent_dim,tt_mask=True)
-            print("graph_build_type dis mlpsim_tt_mask")
-        elif graph_build_type == "mlpsim_direc_tt_mask":
-            self.graph_constructor = MLPSimDirectConstructor(predefined_adj=predefined_adj,latent_dim=latent_dim,tt_mask=True)
-            print("graph_build_type dis mlpsim_direc_tt_mask")
+            self.graph_constructor = MLPSimConstructor(predefined_adj=predefined_adj,latent_dim=latent_dim,self_loop_eps=self.self_loop_eps)
+            print("graph_build_type is mlpsim")
 
 
         # if graph_conv_type == 'gcn':
@@ -320,24 +320,7 @@ class TNModule(nn.Module):
                     heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
                     conv_type=self.conv_type
                 )
-            elif graph_conv_type == 'weighted_han_update6':
-                self.graph_conv = WeightedHANUpdate6(
-                    num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
-                    heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
-                    conv_type=self.conv_type
-                )
-            elif graph_conv_type == 'weighted_han_update7':
-                self.graph_conv = WeightedHANUpdate7(
-                    num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
-                    heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
-                    conv_type=self.conv_type
-                )
-            elif graph_conv_type == 'weighted_han_update8':
-                self.graph_conv = WeightedHANUpdate8(
-                    num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
-                    heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
-                    conv_type=self.conv_type
-                )
+
 
             elif graph_conv_type == 'weighted_han_homo':
                 self.graph_conv = WeightedHAN(
@@ -349,17 +332,30 @@ class TNModule(nn.Module):
                 self.graph_conv = WeightedHAN(
                     num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
                     heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
-                    conv_type=self.conv_type
+                    conv_type='hetero'
                 )
             elif graph_conv_type == 'hgt':
                 self.graph_conv = HGT(
                     num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
                     heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
+                conv_type='all'
+                )
+            elif graph_conv_type == 'hgt':
+                self.graph_conv = HGT(
+                    num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
+                    heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
+                conv_type='all'
+                )
+            elif graph_conv_type == 'hstga1':
+                self.graph_conv = HSTGAttn(
+                    num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
+                    heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
                 conv_type=self.conv_type
                 )
 
+
             else:
-                raise NotImplementedError("Unknown graph_conv")
+                raise NotImplementedError("Unknown graph_conv", graph_conv_type)
 
     def forward(self, X):
         """
@@ -376,9 +372,9 @@ class TNModule(nn.Module):
             Xs, Xt
         )  # spatial and temporal adjecent matrix
         if not self.without_gcn:
-            X = self.graph_conv(X, batch_indices, batch_values)
+             X, (nss, ntt, nst, nts), (smt_s, smt_t) = self.graph_conv(X, batch_indices, batch_values)
 
-        return X
+        return X, (nss, ntt, nst, nts), (smt_s, smt_t)
 
 
 class SpatialEncoder(nn.Module):
@@ -409,7 +405,6 @@ class SpatialEncoder(nn.Module):
         assert N == self.num_nodes
         # set dtype to LongType
         static_embeding = self.static_node_embedding.weight.expand(B, N, -1)
-
         # 将static_embedding和x沿最后一个维度连接，得到(B, N, T+static_embed_dim)的新张量
         x = torch.cat((x, static_embeding), dim=2)
 
@@ -729,11 +724,11 @@ class MLPConstructor2(nn.Module):
 
 
 class MLPSimConstructor(nn.Module):
-    def __init__(self, predefined_adj=None, latent_dim=32,tt_mask=True):
+    def __init__(self, predefined_adj=None, latent_dim=32,self_loop_eps=0.5):
         super(MLPSimConstructor, self).__init__()
         self.predefined_adj =predefined_adj
         # self.self_loop_eps = self_loop_eps
-        self.tt_mask = tt_mask
+        
         self.relation_mlp_model = nn.ModuleDict({
             'st': nn.Sequential(
                     nn.Linear(latent_dim+latent_dim, latent_dim),
@@ -782,15 +777,6 @@ class MLPSimConstructor(nn.Module):
         adj[:, :N, N:] = st_adj
         adj[:, N:, :N] = ts_adj
         
-        if self.predefined_adj is not None:
-            # avoid inplace operation 
-            adj = adj + self.predefined_adj
-        
-        if self.tt_mask:
-            adj[:, N:, N:] = torch.triu(adj[:, N:, N:])
-
-
-        
         return adj
 
 
@@ -830,121 +816,161 @@ class MLPSimConstructor(nn.Module):
 
 
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+import copy
+import math
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from torch_timeseries.nn.dilated_inception import DilatedInception
+from torch_timeseries.nn.layer import LayerNorm
 
 
-class MLPSimDirectConstructor(nn.Module):
-    def __init__(self, predefined_adj=None, latent_dim=32,tt_mask=True, alpha=3):
-        super(MLPSimDirectConstructor, self).__init__()
-        self.predefined_adj =predefined_adj
-        # self.self_loop_eps = self_loop_eps
-        self.tt_mask = tt_mask
-        self.relation_mlp_model = nn.ModuleDict({
-            'st': nn.Sequential(
-                    nn.Linear(latent_dim+latent_dim, latent_dim),
-                    nn.Sigmoid(),
-                    nn.Linear(latent_dim, 1),
-                ),
-            'ts': nn.Sequential(
-                    nn.Linear(latent_dim+latent_dim, latent_dim),
-                    nn.Sigmoid(),
-                    nn.Linear(latent_dim, 1),
-                ),
-        })
-        self.alpha = alpha
+class TCNOutputLayer(nn.Module):
+    def __init__(self,input_seq_len,num_nodes,out_seq_len,tcn_layers,in_channel,dilated_factor,tcn_channel, hidden_channel=3,kernel_set=[2,3,6,7],d0=1) -> None:
+        super().__init__()
         
+        # self.latent_seq_layer = nn.Linear(input_seq_len, latent_seq)
+        # self.hidden_layer = nn.Conv2d(in_channel, hidden_channel, (1,1))
+        self.channel_layer = nn.Conv2d(in_channel, tcn_channel, (1, 1))
+        self.tcn = TCN(
+                    input_seq_len,num_nodes, tcn_channel, tcn_channel,
+                    out_seq_len=out_seq_len, num_layers=tcn_layers,
+                    dilated_factor=dilated_factor, d0=d0,kernel_set=kernel_set
+                )
+        self.end_layer = nn.Conv2d(tcn_channel, out_seq_len, (1, 1))
+        self.act = nn.ELU()
         
-        self.ss_x1_lin = nn.Linear(latent_dim, latent_dim, bias=False)
-        self.ss_x2_lin = nn.Linear(latent_dim, latent_dim, bias=False)
-    
-    def build_sub_graph(self, x1, x2, relation_name):
-        
-        if relation_name =='ss':
-            return self.build_ss_graph(x1, x2)
-        
-        B, N1, D = x1.size()
-        B ,N2, D = x2.size()
-        # 扩展 x1 和 x2 以便于拼接
-        x1_expanded = x1.unsqueeze(2)  # 维度变为 [B, N1, 1, D]
-        x2_expanded = x2.unsqueeze(1)  # 维度变为 [B, 1, N2, D]
-
-        # 在拼接维度上重复以匹配对方的维度
-        x1_tiled = x1_expanded.repeat(1, 1, N2, 1)  # [B, N1, N2, D]
-        x2_tiled = x2_expanded.repeat(1, N1, 1, 1)  # [B, N1, N2, D]
-        # 拼接 xs 和 xt
-        x_combined = torch.cat((x1_tiled, x2_tiled), dim=-1)  # [B, N, O, 2D]
-        # 重塑并应用 MLP
-        x_combined = x_combined.reshape(B, N1 * N2, -1)  # [B, N*O, 2D]
-        
-        adj = self.relation_mlp_model[relation_name](x_combined)  # [B, N*O, 1]
-        adj = adj.reshape(B, N1, N2)  # [B, N, O]
-        
-        # output = self.mlp_output(xi)  # (B, N, O)
-        return adj 
-
-    def build_ss_graph(self, x1, x2):
-        B, N1, D = x1.size()
-        B ,N2, D = x2.size()
-        
-        nodevec1 = torch.tanh(self.alpha*self.ss_x1_lin(x1))
-        nodevec2 = torch.tanh(self.alpha*self.ss_x2_lin(x2))
-        adj =  torch.tanh(torch.einsum("bnf, bmf -> bnm", nodevec1, nodevec2)  -   torch.einsum("bnf, bmf -> bnm", nodevec2, nodevec1))
-        # adj = torch.relu(torch.tanh(self.alpha*a))
-        # output = self.mlp_output(xi)  # (B, N, O)
-        return adj 
-
-
-    def build_graph(self, spatial_nodes, temporal_nodes):
-        
-        B, N, D = spatial_nodes.size()
-        _, T, _ = temporal_nodes.size()
-        node_embs = torch.concat([spatial_nodes, temporal_nodes], dim=1)
-        adj = torch.einsum("bnf, bmf -> bnm", node_embs, node_embs) 
-        ss_adj = self.build_sub_graph(spatial_nodes, spatial_nodes,'ss' )
-        st_adj  = self.build_sub_graph(spatial_nodes, temporal_nodes,'st' )
-        ts_adj = self.build_sub_graph(temporal_nodes, spatial_nodes,'ts' )
-        adj[:, :N, N:] = st_adj
-        adj[:, N:, :N] = ts_adj
-        adj[:, :N, :N] = ss_adj
-        
-        if self.predefined_adj is not None:
-            # avoid inplace operation 
-            adj = adj + self.predefined_adj
-        
-        if self.tt_mask:
-            adj[:, N:, N:] = torch.triu(adj[:, N:, N:])
-        
-        return adj
+    def forward(self, x):
+        # output = self.act(self.latent_seq_layer(x))# (B ,C , N, latent_seq)
+        # output = self.act(self.hidden_layer(x)) 
+        output = self.act(self.channel_layer(x))  # (B ,C , N, T)
+        output = self.tcn(output)  # (B, C, N, out_len)
+        output = self.end_layer(output).squeeze(3)  # (B, out_len, N)
+        return output
 
 
 
-    def forward(
-        self, spatial_nodes, temporal_nodes
-    ) -> Tuple[torch.Tensor, List[torch.Tensor], List[torch.Tensor]]:
-        # spatial nodes: (B, N, D)
-        # temporal nodes: (B, T, D)
-        # A : (N,T), (T , N)
-        B, N, D = spatial_nodes.size()
-        _, T, _ = temporal_nodes.size()
-        
-        _adj = self.build_graph(spatial_nodes, temporal_nodes)
-        # adj = _adj * mask
-        adj = torch.tanh(torch.relu(_adj))
 
-        # predefined adjcent matrix        
-        if self.predefined_adj is not None:
-            # avoid inplace operation 
-            adj = adj + self.predefined_adj
-        
+class TCN(nn.Module):
+    def __init__(
+        self, seq_len,num_nodes, in_channels, hidden_channels, out_seq_len=1, out_channels=None, num_layers=5, 
+        d0=1,dilated_factor=2,  dropout=0,kernel_set=[2,3,6,7]
+    ):
+        super().__init__()
+        self.seq_len = seq_len
+        self.dropout = dropout
+        self.act = nn.ReLU()
+        self.num_layers = num_layers
 
-        batch_indices = list()
-        batch_values = list()
-        for bi in range(B):
-            source_nodes, target_nodes = adj[bi].nonzero().t()
-            edge_weights = adj[bi][source_nodes, target_nodes]
-            edge_index_i = torch.stack([source_nodes, target_nodes], dim=0)
-            batch_indices.append(edge_index_i)
-            batch_values.append(edge_weights)
-        return adj, batch_indices, batch_values
+        self.filter_convs = nn.ModuleList()
+        self.gate_convs = nn.ModuleList()
+        self.residual_convs = nn.ModuleList()
+        self.skip_convs = nn.ModuleList()
+        self.norms = nn.ModuleList()
+        max_kernel_size = max(kernel_set)
+        self.idx = torch.arange(num_nodes)
+        if dilated_factor>1:
+            self.receptive_field = int(1+d0*(max_kernel_size-1)*(dilated_factor**num_layers-1)/(dilated_factor-1))
+        else:
+            self.receptive_field = d0*num_layers*(max_kernel_size-1) + 1
+        # assert self.receptive_field > seq_len  - 1, f"Filter receptive field {self.receptive_field} should be  larger than sequence length {seq_len}"
+        for i in range(1):
+            if dilated_factor>1:
+                rf_size_i = int(1 + i*(max_kernel_size-1)*(dilated_factor**num_layers-1)/(dilated_factor-1))
+            else:
+                rf_size_i = i*d0*num_layers*(max_kernel_size-1)+1
+            new_dilation = d0
+            
+            for j in range(1,num_layers+1):
+                if dilated_factor > 1:
+                    rf_size_j = int(rf_size_i + d0*(max_kernel_size-1)*(dilated_factor**j-1)/(dilated_factor-1))
+                else:
+                    rf_size_j = rf_size_i+d0*j*(max_kernel_size-1)
+                self.filter_convs.append(DilatedInception(in_channels, hidden_channels, dilation_factor=new_dilation))
+                self.gate_convs.append(DilatedInception(in_channels, hidden_channels, dilation_factor=new_dilation))
+                
+                
+                self.residual_convs.append(nn.Conv2d(in_channels=in_channels,
+                                                out_channels=in_channels,
+                                                kernel_size=(1, 1)))
+
+                if self.seq_len>self.receptive_field:
+                    self.skip_convs.append(nn.Conv2d(in_channels=in_channels,
+                                                    out_channels=in_channels,
+                                                    kernel_size=(1, self.seq_len-rf_size_j+1)))
+                else:
+                    self.skip_convs.append(nn.Conv2d(in_channels=in_channels,
+                                                    out_channels=in_channels,
+                                                    kernel_size=(1, self.receptive_field-rf_size_j+1)))
+
+
+                
+                
+                if self.seq_len>self.receptive_field:
+                    self.norms.append(LayerNorm((hidden_channels, num_nodes, seq_len - rf_size_j + 1),elementwise_affine=True))
+                else:
+                    self.norms.append(LayerNorm((hidden_channels, num_nodes, self.receptive_field - rf_size_j + 1),elementwise_affine=True))
+
+                
+                new_dilation *= dilated_factor
+                
+        # skip layer
+        if self.seq_len > self.receptive_field:
+            self.skip0 = nn.Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=(1, self.seq_len), bias=True)
+            self.skipE = nn.Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=(1, self.seq_len-self.receptive_field+1), bias=True)
+
+        else:
+            self.skip0 = nn.Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=(1, self.receptive_field), bias=True)
+            self.skipE = nn.Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=(1, 1), bias=True)
+
+        self.end_conv = nn.Conv2d(
+            in_channels=hidden_channels, 
+            out_channels=out_channels if out_channels is not None else hidden_channels, 
+            kernel_size=(1, 1), bias=True
+        )
+
+
+    def forward(self, x):
+        """
+        x.shape: (B, Cin, N, T)
+
+        output.shape: (B, Cout, N, out_seq_len)
+        """
+        batch, _, n_nodes, seq_len = x.shape
+        assert seq_len == self.seq_len, f"Sequence length {seq_len} should be {self.seq_len}"
+        
+        if seq_len < self.receptive_field:
+            x = nn.functional.pad(x, (self.receptive_field - seq_len, 0, 0, 0))
+        skip = self.skip0(F.dropout(x, self.dropout, training=self.training))
+        for i in range(self.num_layers):
+            residual = x
+            filter = self.filter_convs[i](x)
+            filter = torch.tanh(filter)
+            gate = self.gate_convs[i](x)
+            gate = torch.sigmoid(gate)
+            x = filter * gate
+            x = F.dropout(x, self.dropout, training=self.training)
+            s = x # (b , c , N, p)
+            s = self.skip_convs[i](s) 
+            skip = s + skip
+
+            x = self.residual_convs[i](x)
+            x = x + residual[:, :, :, -x.size(3):]
+
+            x = self.norms[i](x,self.idx)
+            
+        skip = self.skipE(x) + skip
+        x = F.elu(skip)
+            
+        x = F.elu(self.end_conv(x))
+        return x
+
+
 
 
 

@@ -9,7 +9,7 @@ os.environ['CUDA_DEVICE_ORDER'] = "PCI_BUS_ID"
 def main():
     horizons = [3,6,12,24]
     config = Config(
-        device="cuda:1",
+        device="cuda:0",
         horizons=horizons,
         datasets=[
             # ("ETTm1", 384),
@@ -19,8 +19,11 @@ def main():
             # ("ExchangeRate", 96),
             # ("Weather", 168),
             # ("METR_LA", 288),
-            ("SolarEnergy", 168), # OOM
+            # ("SolarEnergy", 168), # OOM
             # ("PEMS_BAY", 288),
+            ("SolarEnergy", 168), # OOM
+            ("Electricity", 168),
+            ("Traffic", 168),
 
         ]
     )

@@ -28,8 +28,8 @@ from dataclasses import dataclass, asdict, field
 class HSTGNNv3Experiment(Experiment):
     model_type: str = "HSTGNNv3"
     
-    gcn_type:str='weighted_han'
-    graph_build_type:str='adaptive'
+    gcn_type:str='weighted_han_update3'
+    graph_build_type:str='mlpsim_direc_tt_mask'
     output_layer_type:str='tcn8'
     conv_type:str='all'
     
@@ -51,7 +51,7 @@ class HSTGNNv3Experiment(Experiment):
     self_loop_eps:float= 0.1
     without_tn_module:bool = False
     without_gcn:bool = False
-    d0 : int = 2
+    d0 : int = 1
     kernel_set : List[int] = field(default_factory=lambda:[2,3,6,7])
     normalization : bool = True
 
@@ -96,7 +96,8 @@ class HSTGNNv3Experiment(Experiment):
             output_layer_type=self.output_layer_type,
             without_tn_module=self.without_tn_module,
             without_gcn=self.without_gcn,
-            conv_type=self.conv_type
+            conv_type=self.conv_type,
+            d0=self.d0
         )
         self.model = self.model.to(self.device)
 

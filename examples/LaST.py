@@ -11,9 +11,9 @@ from torch_timeseries.experiments.last import LaSTExperiment
 
 
 def main():
-    horizons = [12,24]
+    horizons = [3,6,12,24]
     config = Config(
-        device="cuda:6",
+        device="cuda:0",
         horizons=horizons,
         datasets=[
             # ("ExchangeRate", 96),
@@ -22,10 +22,14 @@ def main():
             # ("ETTh1", 384),
             # ("ETTh2", 384),
             # ("ExchangeRate", 96),
-            ("Weather", 168),
+            # ("Weather", 168),
             # ("SolarEnergy", 168), 
             # ("METR_LA", 288),
             # ("PEMS_BAY", 288),
+            ("SolarEnergy", 168), # OOM
+            ("Electricity", 168),
+            ("Traffic", 168),
+
         ]
     )
 

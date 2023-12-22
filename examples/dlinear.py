@@ -21,8 +21,8 @@ def main():
             # ("ExchangeRate", 96),
             # ("Weather", 168),
             ("SolarEnergy", 168), # OOM
-            ("METR_LA", 288),
-            ("PEMS_BAY", 288),
+            ("Electricity", 168),
+            ("Traffic", 168),
         ]
     )
 

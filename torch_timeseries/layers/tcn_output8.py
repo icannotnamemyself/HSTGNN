@@ -13,7 +13,7 @@ from torch_timeseries.nn.layer import LayerNorm
 
 
 class TCNOuputLayer(nn.Module):
-    def __init__(self,input_seq_len,num_nodes,out_seq_len,tcn_layers,in_channel,dilated_factor,tcn_channel,kernel_set=[2,3,6,7],d0=1) -> None:
+    def __init__(self,input_seq_len,num_nodes,out_seq_len,tcn_layers,in_channel,dilated_factor,tcn_channel,kernel_set=[2,3,6,7],d0=1, layer_norm_affline=True) -> None:
         super().__init__()
         
         # self.latent_seq_layer = nn.Linear(input_seq_len, latent_seq)
@@ -21,15 +21,17 @@ class TCNOuputLayer(nn.Module):
         self.tcn = TCN(
                     input_seq_len,num_nodes, tcn_channel, tcn_channel,
                     out_seq_len=out_seq_len, num_layers=tcn_layers,
-                    dilated_factor=dilated_factor, d0=d0,kernel_set=kernel_set
+                    dilated_factor=dilated_factor, d0=d0,kernel_set=kernel_set,layer_norm_affline=layer_norm_affline
                 )
         self.end_layer = nn.Conv2d(tcn_channel, out_seq_len, (1, 1))
         self.act = nn.ELU()
         
+        self.layer_norm_affline = layer_norm_affline
+        
     def forward(self, x):
         # output = self.act(self.latent_seq_layer(x))# (B ,C , N, latent_seq)
         output = self.channel_layer(x)  # (B ,C , N, T)
-        output = self.act(self.tcn(output))  # (B, C, N, out_len)
+        output = self.tcn(output)  # (B, C, N, out_len)
         output = self.end_layer(output).squeeze(3)  # (B, out_len, N)
         return output
 
@@ -39,7 +41,7 @@ class TCNOuputLayer(nn.Module):
 class TCN(nn.Module):
     def __init__(
         self, seq_len,num_nodes, in_channels, hidden_channels, out_seq_len=1, out_channels=None, num_layers=5, 
-        d0=1,dilated_factor=2,  dropout=0,kernel_set=[2,3,6,7]
+        d0=1,dilated_factor=2,  dropout=0.3,kernel_set=[2,3,6,7],layer_norm_affline=False
     ):
         super().__init__()
         self.seq_len = seq_len
@@ -51,6 +53,7 @@ class TCN(nn.Module):
         self.gate_convs = nn.ModuleList()
         self.residual_convs = nn.ModuleList()
         self.skip_convs = nn.ModuleList()
+        self.layer_norm_affline = layer_norm_affline
         self.norms = nn.ModuleList()
         max_kernel_size = max(kernel_set)
         self.idx = torch.arange(num_nodes)
@@ -92,9 +95,9 @@ class TCN(nn.Module):
                 
                 
                 if self.seq_len>self.receptive_field:
-                    self.norms.append(LayerNorm((hidden_channels, num_nodes, seq_len - rf_size_j + 1),elementwise_affine=True))
+                    self.norms.append(LayerNorm((hidden_channels, num_nodes, seq_len - rf_size_j + 1),elementwise_affine=layer_norm_affline))
                 else:
-                    self.norms.append(LayerNorm((hidden_channels, num_nodes, self.receptive_field - rf_size_j + 1),elementwise_affine=True))
+                    self.norms.append(LayerNorm((hidden_channels, num_nodes, self.receptive_field - rf_size_j + 1),elementwise_affine=layer_norm_affline))
 
                 
                 new_dilation *= dilated_factor

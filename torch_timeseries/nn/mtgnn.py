@@ -64,7 +64,6 @@ class MTGNN(nn.Module):
                         self.skip_convs.append(nn.Conv2d(in_channels=conv_channels,
                                                         out_channels=skip_channels,
                                                         kernel_size=(1, self.receptive_field-rf_size_j+1)))
-
                 if self.gcn_true:
                     self.gconv1.append(mixprop(conv_channels, residual_channels, gcn_depth, dropout, propalpha))
                     self.gconv2.append(mixprop(conv_channels, residual_channels, gcn_depth, dropout, propalpha))

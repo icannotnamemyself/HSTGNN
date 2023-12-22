@@ -7,6 +7,7 @@ from torch_timeseries.layers.han import HAN
 from torch_timeseries.layers.tcn_output2 import TCNOuputLayer as TCNOuputLayer2
 from torch_timeseries.layers.tcn_output3 import TCNOuputLayer as TCNOuputLayer3
 from torch_timeseries.layers.tcn_output4 import TCNOuputLayer as TCNOuputLayer4
+from torch_timeseries.layers.tcn_output8 import TCNOuputLayer as TCNOuputLayer8
 from torch_timeseries.layers.tcn_output import TCNOuputLayer
 from torch_timeseries.layers.weighted_han import WeightedHAN
 from torch_timeseries.layers.graphsage import MyGraphSage, MyFAGCN
@@ -38,6 +39,8 @@ class BiSTGNNv6(nn.Module):
         act='elu',
         self_loop_eps=0.1,
         without_tn_module=False,
+        d0=1,
+        kernel_set=[2,3,6,7]
     ):
         super(BiSTGNNv6, self).__init__()
 
@@ -50,6 +53,7 @@ class BiSTGNNv6(nn.Module):
         self.out_seq_len = out_seq_len
         self.self_loop_eps = self_loop_eps
         self.without_tn_module = without_tn_module
+        self.kernel_set = kernel_set
 
         self.spatial_encoder = SpatialEncoder(
             seq_len,
@@ -136,7 +140,18 @@ class BiSTGNNv6(nn.Module):
                 in_channel=out_channels,
                 tcn_channel=tcn_channel,
             )
-
+        elif output_layer_type == 'tcn8':
+            self.output_layer = TCNOuputLayer8(
+                input_seq_len=seq_len,
+                num_nodes=self.num_nodes,
+                out_seq_len=self.out_seq_len,
+                tcn_layers=tcn_layers,
+                dilated_factor=dilated_factor,
+                in_channel=out_channels,
+                tcn_channel=tcn_channel,
+                d0=d0,
+                kernel_set=kernel_set,
+            )
         else:
             raise NotImplementedError(f"output layer type {output_layer_type} not implemented")
 

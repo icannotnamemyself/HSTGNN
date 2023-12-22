@@ -510,10 +510,10 @@ class Experiment(Settings):
         for name, metric_value in test_result.items():
             if self._use_wandb():
                 wandb.run.summary["test_" + name] = metric_value
-                result = {}
-                for name,value in test_result.items():
-                    result['val_' + name] = value
-                wandb.log(result, step=self.current_epoch)
+                # result = {}
+                # for name,value in test_result.items():
+                #     result['val_' + name] = value
+                # wandb.log(result, step=self.current_epoch)
 
         self._run_print(f"test_results: {test_result}")
         return test_result
@@ -599,10 +599,10 @@ class Experiment(Settings):
         for name, metric_value in val_result.items():
             if self._use_wandb():
                 wandb.run.summary["val_" + name] = metric_value
-                result = {}
-                for name,value in val_result.items():
-                    result['val_' + name] = value
-                wandb.log(result, step=self.current_epoch)
+                # result = {}
+                # for name,value in val_result.items():
+                #     result['val_' + name] = value
+                # wandb.log(result, step=self.current_epoch)
 
         self._run_print(f"vali_results: {val_result}")
         return val_result
@@ -805,7 +805,7 @@ class Experiment(Settings):
                 wandb.run.summary[f"{index}_std"] = row["std"]
                 wandb.run.summary[index] = f"{row['mean']:.4f}±{row['std']:.4f}"
         wandb.finish()
-        return self.metric_mean_std
+        # return self.metric_mean_std
 
 def main():
     exp = Experiment(

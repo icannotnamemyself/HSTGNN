@@ -6,14 +6,16 @@ def test_dummy_experiment():
     
     exp = BiSTGNNv6Experiment(
         dataset_type="DummyWithTime", 
-        epochs=5,
+        epochs=1,
         output_layer_type='tcn6',
         horizon=24,
-        pred_len=1,
+        pred_len=3,
         windows=12,
         device="cuda:0"
         )
     exp.run(42)
+    import pdb;pdb.set_trace()
+    print(exp.metrics['mape'].y_pred.shape)
 
 
 
