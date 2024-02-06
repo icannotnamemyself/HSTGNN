@@ -31,6 +31,8 @@ class PEMS04(TimeSeriesStaticGraphDataset):
         self.df['date'] = pd.date_range(start='1/1/2018 00:00', periods=self.length, freq='5T')  # '5T' for 5 minutes
         self.dates =  pd.DataFrame({'date': self.df['date'] })
         self.data = self.df.drop("date", axis=1).values
+        self.df.set_index('date', inplace=True)
+
         return self.data
     
     def _load_static_graph(self):

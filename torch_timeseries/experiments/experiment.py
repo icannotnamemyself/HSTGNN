@@ -230,7 +230,7 @@ class Experiment(Settings):
         ident = self.result_related_config
         ident["seed"] = seed
         # only influence the evluation result, not included here
-        ident['invtrans_loss'] = False
+        # ident['invtrans_loss'] = False
 
         ident_md5 = hashlib.md5(
             json.dumps(ident, sort_keys=True).encode("utf-8")
@@ -610,6 +610,7 @@ class Experiment(Settings):
     def _train(self):
         with torch.enable_grad(), tqdm(total=self.train_steps) as progress_bar:
             self.model.train()
+            train_loss = []
             for i, (
                 batch_x,
                 batch_y,
@@ -632,6 +633,7 @@ class Experiment(Settings):
                     self.model.parameters(), self.max_grad_norm
                 )
                 progress_bar.update(batch_x.size(0))
+                train_loss.append(loss.item())
                 progress_bar.set_postfix(
                     loss=loss.item(),
                     lr=self.model_optim.param_groups[0]["lr"],
@@ -640,7 +642,7 @@ class Experiment(Settings):
                 )
 
                 self.model_optim.step()
-                
+            return train_loss
     def _check_run_exist(self, seed: str):
         if not os.path.exists(self.run_save_dir):
             # 如果目录不存在，则创建新目录
@@ -667,6 +669,20 @@ class Experiment(Settings):
 
         self.early_stopper.set_state(check_point["early_stopping"])
        
+    def _resume_from(self, path):
+        # only train loader rshould be checkedpoint to keep the validation and test consistency
+        run_checkpoint_filepath = os.path.join(path, f"run_checkpoint.pth")
+        print(f"resuming from {run_checkpoint_filepath}")
+
+        check_point = torch.load(run_checkpoint_filepath, map_location=self.device)
+
+        self.model.load_state_dict(check_point["model"])
+        self.model_optim.load_state_dict(check_point["optimizer"])
+        self.current_epoch = check_point["current_epoch"]
+
+        self.early_stopper.set_state(check_point["early_stopping"])
+
+       
     def _load_best_model(self):
         self.model.load_state_dict(torch.load(self.best_checkpoint_filepath, map_location=self.device))
 
@@ -678,6 +694,74 @@ class Experiment(Settings):
 
         self.experiment_label = f"{self.model_type}-w{self.windows}-h{self.horizon}"
     
+    
+    def run_more_epochs(self, seed=42, epoches=200) -> Dict[str, float]:
+        self._setup_run(seed)
+        if self._check_run_exist(seed):
+            self._resume_run(seed)
+
+        self.epoches = epoches
+
+        self._run_print(f"run : {self.current_run} in seed: {seed}")
+        
+        self.model_parameters_num = count_parameters(self.model, self._run_print)
+        self._run_print(
+            f"model parameters: {self.model_parameters_num}"
+        )
+        if self._use_wandb():
+            wandb.run.summary["parameters"] = self.model_parameters_num
+        # for resumable reproducibility
+
+        epoch_time = time.time()
+        while self.current_epoch < self.epochs:
+            if self.early_stopper.early_stop is True:
+                self._run_print(
+                    f"loss no decreased for {self.patience} epochs,  early stopping ...."
+                )
+                break
+
+            if self._use_wandb():
+                wandb.run.summary["at_epoch"] = self.current_epoch
+            # for resumable reproducibility
+            self.reproducible(seed + self.current_epoch)
+            train_losses =  self._train()
+
+            self._run_print(
+                "Epoch: {} cost time: {}".format(
+                    self.current_epoch + 1, time.time() - epoch_time
+                )
+            )
+            self._run_print(
+                f"Traininng loss : {np.mean(train_losses)}"
+            )
+
+            # self._run_print(f"Val on train....")
+            # trian_val_result = self._evaluate(self.train_loader)
+            # self._run_print(f"Val on train result: {trian_val_result}")
+            
+            # evaluate on val set
+            result = self._val()
+            # test
+            test_result = self._test()
+
+            self.current_epoch = self.current_epoch + 1
+            self.early_stopper(result[self.loss_func_type], model=self.model)
+            
+            self._save_run_check_point(seed)
+
+            self.scheduler.step()
+            
+            # if self._use_wandb():
+            #     wandb.log(result, step=self.current_epoch)
+
+
+
+        self._load_best_model()
+        best_test_result = self._test()
+        self.run_setuped = False
+        return best_test_result
+        
+
     
     def test_sweep(self):
         run = wandb.init(
@@ -721,14 +805,21 @@ class Experiment(Settings):
                 wandb.run.summary["at_epoch"] = self.current_epoch
             # for resumable reproducibility
             self.reproducible(seed + self.current_epoch)
-            self._train()
+            train_losses =  self._train()
 
             self._run_print(
                 "Epoch: {} cost time: {}".format(
                     self.current_epoch + 1, time.time() - epoch_time
                 )
             )
+            self._run_print(
+                f"Traininng loss : {np.mean(train_losses)}"
+            )
 
+            # self._run_print(f"Val on train....")
+            # trian_val_result = self._evaluate(self.train_loader)
+            # self._run_print(f"Val on train result: {trian_val_result}")
+            
             # evaluate on val set
             result = self._val()
             # test

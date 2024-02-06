@@ -24,4 +24,5 @@ from .HSTGNNv3 import HSTGNN as HSTGNNv3
 from .HSTGNNv4 import HSTGNN as HSTGNNv4
 from .HSTGNNv5 import HSTGNN as HSTGNNv5
 from .HSTGNNv6 import HSTGNN as HSTGNNv6
+from .HSTGNNv7 import HSTGNN as HSTGNNv7
 from .ESG import ESG

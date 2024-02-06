@@ -7,7 +7,7 @@ horizons=(3 6 12 24)
 for horizon in "${horizons[@]}"
 do
     echo "Running with horizon = $horizon"
-    CUDA_DEVICE_ORDER=PCI_BUS_ID python3 ./torch_timeseries/cli/hstgnnv3.py --dataset_type="ETTh2" --device="cuda:0" --batch_size=32 --horizon="$horizon" --windows 384 --epochs=100 config_wandb --project=BiSTGNN --name="HSTGNNv3 runs" --seeds='[42,233,666,19971203,19980224]'
+    CUDA_DEVICE_ORDER=PCI_BUS_ID python3 ./torch_timeseries/cli/hstgnnv7.py --dataset_type="ETTh2" --device="cuda:0" --batch_size=32 --horizon="$horizon" --windows 384 --epochs=100 config_wandb --project=BiSTGNN --name="HSTGNNv7" --seeds='[42,233,666,19971203,19980224]'
 done
 
 echo "All runs completed."

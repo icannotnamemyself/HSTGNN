@@ -13,7 +13,7 @@ from torch_timeseries.nn.layer import LayerNorm
 
 
 class TCNOuputLayer(nn.Module):
-    def __init__(self,input_seq_len,num_nodes,out_seq_len,tcn_layers,in_channel,dilated_factor,tcn_channel,kernel_set=[2,3,6,7],d0=1, layer_norm_affline=True) -> None:
+    def __init__(self,input_seq_len,num_nodes,out_seq_len,tcn_layers,in_channel,dilated_factor,tcn_channel,act='relu',kernel_set=[2,3,6,7],d0=1, layer_norm_affline=True) -> None:
         super().__init__()
         
         # self.latent_seq_layer = nn.Linear(input_seq_len, latent_seq)
@@ -24,8 +24,10 @@ class TCNOuputLayer(nn.Module):
                     dilated_factor=dilated_factor, d0=d0,kernel_set=kernel_set,layer_norm_affline=layer_norm_affline
                 )
         self.end_layer = nn.Conv2d(tcn_channel, out_seq_len, (1, 1))
-        self.act = nn.ELU()
-        
+        if act == 'elu':
+            self.act = nn.ELU()
+        elif act == 'relu':
+            self.act = nn.ReLU()
         self.layer_norm_affline = layer_norm_affline
         
     def forward(self, x):
@@ -148,7 +150,7 @@ class TCN(nn.Module):
             x = self.norms[i](x,self.idx)
             
         skip = self.skipE(x) + skip
-        x = F.elu(skip)
+        x = self.act(skip)
             
-        x = F.elu(self.end_conv(x))
+        x = self.act(self.end_conv(x))
         return x

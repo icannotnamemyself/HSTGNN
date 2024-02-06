@@ -38,24 +38,42 @@ def get_normalized_adj(A):
 
 @dataclass
 class STGCNExperiment(Experiment):
-    model_type: str = "STGCN"
-    K : int = 2
+    model_type: str = "STGCN1"
+    stblock_num : int = 2
+    Kt : int = 3
+    Ks : int = 3
+    act_func : str = 'glu'
+    graph_conv_type : str = 'cheb_graph_conv'
         
     def _init_model(self):
         assert isinstance(self.dataset, TimeSeriesStaticGraphDataset), "dataset must be of type TimeSeriesStaticGraphDataset"
+        
+        blocks = []
+        blocks.append([1])
+        self.normalized_adj = torch.tensor(get_normalized_adj(self.dataset.adj)).to(self.device).float()
+        
+        Ko = self.windows - (self.Kt - 1) * 2 * self.stblock_num
+        for l in range(self.stblock_num):
+            blocks.append([64, 16, 64])
+        if Ko == 0:
+            blocks.append([128])
+        elif Ko > 0:
+            blocks.append([128, 128])
+        blocks.append([self.pred_len])
+
         self.model = STGCN(
-            num_nodes=self.dataset.num_features,
-            num_features=1,
-            num_timesteps_input=self.windows,
-            num_timesteps_output=self.pred_len,
+            blocks,
+            self.dataset.num_features,
+            self.windows,
+            self.normalized_adj,
+            self.Ks,
+            self.Kt,
+            self.act_func,
+            self.graph_conv_type,
+            True, 
+            0.5
         )
         self.model = self.model.to(self.device)
-
-        self.edge_index, self.edge_weight = adj_to_edge_index_weight(self.dataset.adj)
-        self.edge_index = torch.tensor(self.edge_index).to(self.device)
-        self.edge_weight = torch.tensor(self.edge_weight).to(self.device)
-
-        self.normalized_adj = torch.tensor(get_normalized_adj(self.dataset.adj)).to(self.device).float()
         
     def _process_one_batch(self, batch_x, batch_y, batch_x_date_enc, batch_y_date_enc):
         # inputs:
@@ -73,9 +91,11 @@ class STGCNExperiment(Experiment):
         batch_y = batch_y.to(self.device, dtype=torch.float32)
         batch_x_date_enc = batch_x_date_enc.to(self.device).float()
         batch_y_date_enc = batch_y_date_enc.to(self.device).float()
-        batch_x = batch_x.transpose(1,2).unsqueeze(-1)  # (B, N, T, D)
-        y = self.model(self.normalized_adj,batch_x).squeeze(-1) # (B N O)
-        y = y.transpose(1,2)  # (B, O, N)
+        # batch_x = batch_x.unsqueeze(-1)  # (B, T, N, D)
+        batch_x = batch_x.unsqueeze(1)  # (B,D, T, N)
+        y = self.model(batch_x).view(batch_size, self.pred_len, self.dataset.num_features) # (B, O, N)
+        # y = self.model(batch_x).view(batch_size, self.) # (B N O)
+        # y = y.transpose(1,2)  # (B, O, N)
         return y, batch_y
 
 

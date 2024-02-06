@@ -9,9 +9,6 @@ from torch_timeseries.experiments.bistgnnv2_experiment import BiSTGNNv2Experimen
 
 def main():
     # Set up your default hyperparameters
-    with open("/notebooks/pytorch_timeseries/examples/bistgnn_sweep_parallel.yml") as file:
-        config = yaml.load(file, Loader=yaml.FullLoader)
-
     run = wandb.init(config=config)
     exp = BiSTGNNv2Experiment(
                 dataset_type="METR_LA",
@@ -22,11 +19,11 @@ def main():
                 tcn_channel=wandb.config.tcn_channel,
                 tn_layers=wandb.config.tn_layers,
                 model_type="BiSTGNN",
-                graph_build_type='adaptive',
+                graph_build_type='predefined_adaptive',
                 gcn_type= 'han',
     )
     
-    metric_mean_std=    exp.runs(seeds=[42,233])
+    metric_mean_std =  exp.runs(seeds=[42,233])
     
     for index, row in metric_mean_std.iterrows():
         wandb.run.summary[f"{index}_mean"] = row["mean"]

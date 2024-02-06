@@ -1,0 +1,35 @@
+program: /notebooks/pytorch_timeseries/torch_timeseries/cli/hstgnnv7.py
+method: grid
+name: HSTGNNv7_pems07_sweep
+metric:
+  goal: minimize
+  name: mape
+parameters:
+  gcn_layers: 
+    values: [1,2,3]
+  latent_dim: 
+    values: [32]
+  tcn_channel: 
+    values: [32]
+  tcn_layers:
+    values: [3,4,5]
+
+
+command:
+  - ${env}
+  - python3
+  - ${program}
+  - --dataset_type=PEMS_BAY
+  - --batch_size=32
+  - --windows=12
+  - --invtrans_loss=True
+  - --horizon=1
+  - --epochs=100
+  - --pred_len=12
+  - ${args}
+  - config_wandb
+  - --project=BiSTGNN
+  - --name=BiSTGNN
+  - runs  
+  # - --seeds="[42,233,666]"
+

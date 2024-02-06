@@ -103,8 +103,8 @@ class HAN(nn.Module):
                 }
                 edge_index_bi = edge_index[bi]
                 # TODO: edge may be empty, please ensure no empty edges here
-                assert ((edge_index_bi[0] < self.node_num) 
-                    & (edge_index_bi[1] < self.node_num)).any() == True
+                # assert ((edge_index_bi[0] < self.node_num) 
+                #     & (edge_index_bi[1] < self.node_num)).any() == True
                 
                 edge_nn = edge_index_bi[
                     :,

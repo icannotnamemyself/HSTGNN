@@ -15,7 +15,7 @@ from torch_timeseries.nn.metric import TrendAcc, R2, Corr
 from torch.nn import MSELoss, L1Loss
 from torchmetrics import MetricCollection, R2Score, MeanSquaredError
 from torch.utils.data import Dataset, DataLoader, RandomSampler, Subset
-from torch_geometric_temporal.nn.recurrent import DCRNN 
+from torch_timeseries.models.DCRNN import DCRNN 
 
 from torch.optim import Optimizer, Adam
 
@@ -28,27 +28,29 @@ from torch_timeseries.utils.adj import adj_to_edge_index_weight
 
 @dataclass
 class DCRNNExperiment(Experiment):
-    model_type: str = "DCRNN"
+    model_type: str = "DCRNN1"
     K : int = 2
+    enc_input_dim : int = 2
+    dec_intput_dim : int = 1
+    num_rnn_layers : int = 2
+    rnn_units : int = 32
+    
         
     def _init_model(self):
         assert isinstance(self.dataset, TimeSeriesStaticGraphDataset), "dataset must be of type TimeSeriesStaticGraphDataset"
-        self.model = DCRNN(
-            in_channels=self.windows,
-            out_channels=self.pred_len,
-            K=self.K
-        )
-        self.model = self.model.to(self.device)
         if isinstance(self.dataset, TimeSeriesStaticGraphDataset) and self.pred_len > 1:
             predefined_NN_adj = torch.tensor(self.dataset.adj).to(self.device)
             D = torch.diag(torch.sum(predefined_NN_adj, dim=1))
             D_sqrt_inv = torch.sqrt(torch.inverse(D))
             normalized_predefined_adj = D_sqrt_inv @predefined_NN_adj @ D_sqrt_inv
-            padded_A = torch.nn.functional.pad(normalized_predefined_adj, (0, self.windows, 0, self.windows), mode='constant', value=0).float()
 
-            self.edge_index, self.edge_weight = adj_to_edge_index_weight(padded_A.detach().cpu().numpy())
-            self.edge_index = torch.tensor(self.edge_index).to(self.device)
-            self.edge_weight = torch.tensor(self.edge_weight).to(self.device)
+
+            self.model = DCRNN(adj_mat=normalized_predefined_adj.detach().cpu().numpy(), 
+                               device=self.device,
+                               enc_input_dim=self.enc_input_dim, dec_input_dim=self.dec_intput_dim, max_diffusion_step=self.K, num_nodes=self.dataset.num_features, num_rnn_layers=self.num_rnn_layers, rnn_units=self.rnn_units, seq_len =self.windows, output_dim=1, filter_type='laplacian')
+            self.model = self.model.to(self.device)
+
+
 
     def _process_one_batch(self, batch_x, batch_y, batch_x_date_enc, batch_y_date_enc):
         # inputs:
@@ -58,19 +60,25 @@ class DCRNNExperiment(Experiment):
         # - pred: (B, N)/(B, O, N)
         # - label: (B, N)/(B, O, N)
         batch_size = batch_x.size(0)
+        
+    
         batch_x = batch_x.to(self.device, dtype=torch.float32)
         batch_y = batch_y.to(self.device, dtype=torch.float32)
         batch_x_date_enc = batch_x_date_enc.to(self.device).float()
         batch_y_date_enc = batch_y_date_enc.to(self.device).float()
-        batch_x = batch_x.transpose(1,2)  # (B, N, T)
+        # batch_x = batch_x.transpose(1,2)  # (B, N, T)
         
-        ys = []
-        for i in range(batch_x.shape[0]):  
-            yi = self.model(batch_x[i],self.edge_index,self.edge_weight)
-            ys.append(yi)
-        pred_y = torch.stack(ys,dim=0) # (B, N,O)
-        pred_y = pred_y.transpose(1,2)  # (B, O, N)
-        return pred_y, batch_y
+        
+        source = torch.stack([batch_x,batch_x],dim=-1 ) # (B, T N)
+        target = torch.stack([batch_x,batch_x],dim=-1 ) # (B,, T N,1 )
+        
+        pred = self.model(source, target, batch_size) # (T, B, N)
+         
+        pred = pred.transpose(0 , 1).to(self.device) # (B, T, N)
+        
+        pred = pred[:, :self.pred_len, :] # (B, O, N)
+         
+        return pred, batch_y
 
 
 def main():
@@ -78,11 +86,11 @@ def main():
         dataset_type="DummyDatasetGraph",
         data_path="./data",
         optm_type="Adam",
-        batch_size=64,
-        device="cuda:0",
+        batch_size=31,
+        device="cuda:2",
         pred_len=3,
         horizon=1,
-        windows=16,
+        windows=12,
     )
     # exp.config_wandb(
     #     "project",

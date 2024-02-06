@@ -164,7 +164,6 @@ class WeightedHANConv(MessagePassing):
         semantic_attn_dict = {}
         for node_type, outs in out_dict.items():
             out, attn = group(outs, self.q, self.k_lin)
-            import pdb;pdb.set_trace()
             out_dict[node_type] = out
             semantic_attn_dict[node_type] = attn
 

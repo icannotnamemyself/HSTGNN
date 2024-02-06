@@ -1,0 +1,31 @@
+program: /notebooks/pytorch_timeseries/torch_timeseries/cli/bistgnnv6.py
+method: grid
+name: BiSTGNN_weather_sweep1
+metric:
+  goal: minimize
+  name: test_mse
+parameters:
+  self_loop_eps: 
+    values: [0,0.1]
+  heads: 
+    values: [1,2,3]
+  gcn_layers: 
+    values: [1,2,3]
+  tn_layers:
+    values: [1,2,3]
+command:
+  - ${env}
+  - python3
+  - ${program}
+  - --dataset_type=Weather
+  - --batch_size=32
+  - --windows=168
+  - --horizon=3
+  - --epochs=100
+  - --pred_len=1
+  - ${args}
+  - wandb_sweep
+  - --project=BiSTGNN
+  - --name=BiSTGNN
+  - run
+
