@@ -1,4 +1,4 @@
-from .dummy import Dummy,DummyWithTime,DummyDatasetGraph
+from .dummy import Dummy,DummyWithTime,DummyDatasetGraph, DummyContinuous
 from .traffic import Traffic
 from .exchange_rate import ExchangeRate
 from .solar_energy import SolarEnergy

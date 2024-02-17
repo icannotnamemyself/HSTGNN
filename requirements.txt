@@ -1,10 +1,4 @@
 tqdm
-prettytable
 torchmetrics
 einops
-gin-config 
 class-resolver
-
-
-# for h5 store reading
-tables

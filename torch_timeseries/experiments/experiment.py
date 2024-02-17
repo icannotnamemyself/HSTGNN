@@ -704,7 +704,7 @@ class Experiment(Settings):
 
         self._run_print(f"run : {self.current_run} in seed: {seed}")
         
-        self.model_parameters_num = count_parameters(self.model, self._run_print)
+        self.model_parameters_num = self.count_parameters(self._run_print)
         self._run_print(
             f"model parameters: {self.model_parameters_num}"
         )
@@ -774,6 +774,19 @@ class Experiment(Settings):
         # raise NotImplementedError("ss")
         return
 
+    def count_parameters(self, print_fun):
+        table = PrettyTable(["Modules", "Parameters"])
+        total_params = 0
+        for name, parameter in self.model.named_parameters():
+            if not parameter.requires_grad:
+                continue
+            params = parameter.numel()
+            table.add_row([name, params])
+            total_params += params
+        print_fun(table)
+        print_fun(f"Total Trainable Params: {total_params}")
+        return total_params
+    
     def run(self, seed=42) -> Dict[str, float]:
         if hasattr(self, "finished") and self.finished is True:
             print("Experiment finished!!!")
@@ -785,7 +798,7 @@ class Experiment(Settings):
 
         self._run_print(f"run : {self.current_run} in seed: {seed}")
         
-        self.model_parameters_num = count_parameters(self.model, self._run_print)
+        self.model_parameters_num = self.count_parameters(self._run_print)
         self._run_print(
             f"model parameters: {self.model_parameters_num}"
         )

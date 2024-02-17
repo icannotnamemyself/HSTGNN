@@ -92,3 +92,63 @@ class DummyWithTime(TimeSeriesDataset):
         self.dates = pd.DataFrame({'date':self.df.date})
         self.data = self.df.drop('date', axis=1).values        
         return self.data
+    
+    
+    
+    
+class DummyWithTime(TimeSeriesDataset):
+    name: str = 'dummy'
+    num_features:int = 2
+    freq : Freq = Freq.minutes
+    length : int = 1440
+    def download(self): 
+        pass
+    
+    def _load(self):
+        # 生成日期序列
+        dates = pd.date_range(start='2022-01-01', end='2022-01-02', freq='t')
+
+        # 创建一个数据矩阵
+        data = np.random.rand(len(dates), 2)
+        # 将时间列和数据矩阵拼接成一个numpy数组
+        self.df = pd.DataFrame({'date': dates, 'data1': data[:, 0],'data2': data[:, 1]})
+        self.dates = pd.DataFrame({'date':self.df.date})
+        self.data = self.df.drop('date', axis=1).values        
+        return self.data
+
+
+
+
+
+
+class DummyContinuous(TimeSeriesDataset):
+    name: str = 'dummy'
+    num_features: int = 10
+    freq: Freq = Freq.minutes
+    length: int = 1440
+
+    def download(self):
+        pass
+    
+    def _load(self):
+        # 生成日期序列
+        dates = pd.date_range(start='2022-01-01', end='2022-01-03', freq='t')
+        
+        # 初始化数据矩阵
+        data = np.zeros((len(dates), self.num_features))
+        
+        # 为序列的最初三个时间点设置初始值，这里使用0作为示例
+        data[:3, :] = np.random.rand(3, self.num_features)  # 可以选择其他初始值
+        
+        # 根据公式计算序列的其余部分
+        for i in range(3, len(dates)):
+            for j in range(self.num_features):  # 对每一列（特征）应用公式
+                data[i, j] = (data[i-1, j]+ data[i-2, j])/data[i-3, j] + np.sqrt(i)
+        
+        # 将时间列和数据矩阵拼接成DataFrame
+        self.df = pd.DataFrame(data, columns=[ f"data{i}" for i in range(self.num_features)])
+        self.df['date'] = dates
+        self.dates = pd.DataFrame({'date': self.df.date})
+        self.data = self.df.drop('date', axis=1).values
+        
+        return self.data
