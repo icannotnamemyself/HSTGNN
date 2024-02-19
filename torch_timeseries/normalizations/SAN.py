@@ -3,12 +3,13 @@ import torch.nn as nn
 
 
 class SAN(nn.Module):
-    def __init__(self, seq_len, pred_len, period_len, enc_in,station_type, features):
-        super(SAN, self).__init__()
+    def __init__(self, seq_len, pred_len, period_len, enc_in,station_type='adaptive'):
+        super().__init__()
         self.seq_len = seq_len
         self.pred_len = pred_len
         self.period_len = period_len
         self.channels = enc_in 
+        self.enc_in = enc_in 
         # configs.enc_in if configs.features == 'M' else 1
         self.station_type = station_type
 
@@ -54,14 +55,17 @@ class SAN(nn.Module):
             input = input.reshape(bs, -1, self.period_len, dim)
             # mean = station_pred[:, :, :self.channels].unsqueeze(2)
             # std = station_pred[:, :, self.channels:].unsqueeze(2)
-            mean = station_pred[:, :, :].unsqueeze(2)
-            std = station_pred[:, :, :].unsqueeze(2)
+            mean = station_pred[:, :, :self.channels].unsqueeze(2)
+            std = station_pred[:, :, self.channels:].unsqueeze(2)
             output = input * (std + self.epsilon) + mean
             return output.reshape(bs, len, dim)
-
-
         else:
             return input
+    def forward(self, batch_x, mode='n', station_pred=None):
+        if mode == 'n':
+            return self.normalize(batch_x)
+        elif mode =='d':
+            return self.denormalize(batch_x, station_pred)
 
 
 class MLP(nn.Module):

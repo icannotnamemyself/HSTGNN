@@ -40,7 +40,11 @@ class RevIN(nn.Module):
     def inverse_process(self, batch_input):
         return ((batch_input - self.beta) / self.gamma) * torch.sqrt(self.var + 1e-8) + self.avg
     
-    
-    
+    def forward(self, batch_x, mode='n', dec=None):
+        if mode == 'n':
+            return self.normalize(batch_x, dec)
+        elif mode =='d':
+            return self.denormalize(batch_x)
+            
 
 

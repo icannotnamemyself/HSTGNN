@@ -35,7 +35,8 @@ class DishTS(nn.Module):
 
 
     def preget(self, batch_x):
-        x_transpose = batch_x.permute(2,0,1) 
+        # (B, T, N)
+        x_transpose = batch_x.permute(2,0,1)   # (N, B, T)
         theta = torch.bmm(x_transpose, self.reduce_mlayer).permute(1,2,0)
         if self.activate:
             theta = F.gelu(theta)
@@ -51,3 +52,13 @@ class DishTS(nn.Module):
     
     def inverse_process(self, batch_input):
         return ((batch_input - self.beta) / self.gamma) * torch.sqrt(self.xih + 1e-8) + self.phih
+    
+    
+    def forward(self, batch_x, mode='n', dec=None):
+        if mode == 'n':
+            return self.normalize(batch_x, dec)
+        elif mode =='d':
+            return self.denormalize(batch_x)
+            
+
+

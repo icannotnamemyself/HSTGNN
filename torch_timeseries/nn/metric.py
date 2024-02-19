@@ -100,46 +100,52 @@ class R2(R2Score):
     """Metric for multi step forcasting"""
     compute_by_all : bool = False
 
-    def __init__(self, num_outputs, num_nodes=1, adjusted: int = 0, multioutput: str = "uniform_average") -> None:
+    def __init__(self, num_outputs, adjusted: int = 0, multioutput: str = "uniform_average") -> None:
         super().__init__(num_outputs, adjusted, multioutput)
-        if num_nodes > 1:
-            self.add_state("sum_squared_error", default=torch.zeros(
-                self.num_outputs, num_nodes), dist_reduce_fx="sum")
-            self.add_state("sum_error", default=torch.zeros(
-                self.num_outputs, num_nodes), dist_reduce_fx="sum")
-            self.add_state("residual", default=torch.zeros(
-                self.num_outputs, num_nodes), dist_reduce_fx="sum")
-            self.add_state("total", default=torch.zeros(
-                num_nodes), dist_reduce_fx="sum")
+        # if num_nodes > 1:
+        #     self.add_state("sum_squared_error", default=torch.zeros(
+        #         self.num_outputs, num_nodes), dist_reduce_fx="sum")
+        #     self.add_state("sum_error", default=torch.zeros(
+        #         self.num_outputs, num_nodes), dist_reduce_fx="sum")
+        #     self.add_state("residual", default=torch.zeros(
+        #         self.num_outputs, num_nodes), dist_reduce_fx="sum")
+        #     self.add_state("total", default=torch.zeros(
+        #         num_nodes), dist_reduce_fx="sum")
 
-        self.num_nodes = num_nodes
+        # self.num_nodes = num_nodes
 
     def update(self, preds: Tensor, target: Tensor) -> None:  # type: ignore
         """Update state with predictions and targets."""
         # [batch , seq, node] or (batch, node)
-        if self.num_nodes > 1:
-            sum_obs = torch.sum(target, dim=0)  # (seq, node) or (node)
-            sum_squared_obs = torch.sum(
-                target * target, dim=0)  # (seq, node)  or (node)
-            residual = target - preds  # (batch , seq, node) or (node)
-            rss = torch.sum(residual * residual, dim=0)  # (seq, node) or (node)
-            n_obs = target.size(0)  # or (node)
+        
+        # if len(preds.shape) > 2:
+        #     bs, t, n = target.shape
+        #     preds = preds.reshape(-1, self.num_outputs)
+        #     target = target.reshape(-1, self.num_outputs)
 
-            self.sum_squared_error += sum_squared_obs
-            self.sum_error += sum_obs
-            self.residual += rss
-            self.total += n_obs
-        else:
-            R2Score.update(self, preds, target)
+        # if self.num_nodes > 1:
+        #     sum_obs = torch.sum(target, dim=0)  # (seq, node) or (node)
+        #     sum_squared_obs = torch.sum(
+        #         target * target, dim=0)  # (seq, node)  or (node)
+        #     residual = target - preds  # (batch , seq, node) or (node)
+        #     rss = torch.sum(residual * residual, dim=0)  # (seq, node) or (node)
+        #     n_obs = target.size(0)  # or (node)
+
+        #     self.sum_squared_error += sum_squared_obs
+        #     self.sum_error += sum_obs
+        #     self.residual += rss
+        #     self.total += n_obs
+        # else:
+        R2Score.update(self, preds, target)
     def compute(self) -> Tensor:
-        if self.num_nodes > 1:
-            result = torch.tensor([_r2_score_compute(
-                self.sum_squared_error[:, i], self.sum_error[:, i], self.residual[:,
-                                                                                    i], self.total[i], self.adjusted, self.multioutput
-            ) for i in range(self.num_nodes)], device=self.device).mean()
-            return result
-        else:
-            return R2Score.compute(self)
+        # if self.num_nodes > 1:
+        #     result = torch.tensor([_r2_score_compute(
+        #         self.sum_squared_error[:, i], self.sum_error[:, i], self.residual[:,
+        #                                                                             i], self.total[i], self.adjusted, self.multioutput
+        #     ) for i in range(self.num_nodes)], device=self.device).mean()
+        #     return result
+        # else:
+        return R2Score.compute(self)
 
 class Corr(Metric):
     """correlation for multivariate timeseries, Corr compute correlation for every columns/nodes and output the averaged result"""
@@ -156,6 +162,11 @@ class Corr(Metric):
 
 
     def update(self, y_pred: torch.Tensor, y_true: torch.Tensor):
+        # if len(y_pred.shape) > 2:
+        #     bs = y_pred.shape[0]
+        #     y_pred = y_pred.reshape(bs, -1)
+        #     y_true = y_true.reshape(bs, -1)
+            
         if self.save_on_gpu == True:
             self.y_pred = torch.cat([self.y_pred, y_pred], dim=0)
             self.y_true = torch.cat([self.y_true, y_true], dim=0)

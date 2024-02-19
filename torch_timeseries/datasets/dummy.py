@@ -125,14 +125,15 @@ class DummyContinuous(TimeSeriesDataset):
     name: str = 'dummy'
     num_features: int = 10
     freq: Freq = Freq.minutes
-    length: int = 1440
+    length: int = 10000
 
     def download(self):
         pass
     
     def _load(self):
         # 生成日期序列
-        dates = pd.date_range(start='2022-01-01', end='2022-01-03', freq='t')
+        dates = pd.date_range(start='2022-01-01', periods=self.length, freq='t')
+        # dates = pd.date_range(start='2022-01-01', end='2022-01-03', freq='t')
         
         # 初始化数据矩阵
         data = np.zeros((len(dates), self.num_features))
