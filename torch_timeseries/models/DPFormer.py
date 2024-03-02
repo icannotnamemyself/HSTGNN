@@ -20,10 +20,7 @@ class FlattenHead(nn.Module):
         return x
 
 
-class PatchTST(nn.Module):
-    """
-    Paper link: https://arxiv.org/pdf/2211.14730.pdf
-    """
+class DPFormer(nn.Module):
 
     def __init__(self, seq_len,pred_len,enc_in,n_heads=8,dropout=0.0,e_layers=2,d_model=512,d_ff=512, patch_len=16, stride=8,task_name="long_term_forecast",num_class=0):
         """
@@ -35,6 +32,9 @@ class PatchTST(nn.Module):
         self.seq_len = seq_len
         self.pred_len = pred_len
         padding = stride
+
+        
+
 
         # patching and embedding
         self.patch_embedding = PatchEmbedding(
@@ -57,17 +57,22 @@ class PatchTST(nn.Module):
         # Prediction Head
         self.head_nf = d_model * \
                        int((seq_len - patch_len) / stride + 2)
-        if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast':
-            self.head = FlattenHead(enc_in, self.head_nf, pred_len,
-                                    head_dropout=dropout)
-        elif self.task_name == 'imputation' or self.task_name == 'anomaly_detection':
-            self.head = FlattenHead(enc_in, self.head_nf, seq_len,
-                                    head_dropout=dropout)
-        elif self.task_name == 'classification':
-            self.flatten = nn.Flatten(start_dim=-2)
-            self.dropout = nn.Dropout(dropout)
-            self.projection = nn.Linear(
-                self.head_nf * enc_in, num_class)
+                       
+        self.head = FlattenHead(enc_in, self.head_nf, pred_len,
+                                head_dropout=dropout)
+
+
+        # if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast':
+        #     self.head = FlattenHead(enc_in, self.head_nf, pred_len,
+        #                             head_dropout=dropout)
+        # elif self.task_name == 'imputation' or self.task_name == 'anomaly_detection':
+        #     self.head = FlattenHead(enc_in, self.head_nf, seq_len,
+        #                             head_dropout=dropout)
+        # elif self.task_name == 'classification':
+        #     self.flatten = nn.Flatten(start_dim=-2)
+        #     self.dropout = nn.Dropout(dropout)
+        #     self.projection = nn.Linear(
+        #         self.head_nf * enc_in, num_class)
 
     def forecast(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
         # Normalization from Non-stationary Transformer

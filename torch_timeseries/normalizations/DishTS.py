@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 
 class DishTS(nn.Module):
-    def __init__(self, n_series, seq_len,  dish_init='standard'):
+    def __init__(self, n_series, seq_len,  dish_init='uniform'):
         super().__init__()
         init = dish_init #'standard', 'avg' or 'uniform'
         activate = True

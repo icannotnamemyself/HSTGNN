@@ -28,6 +28,7 @@ class ChunkSequenceTimefeatureDataLoader:
         train_ratio: float = 0.7,
         val_ratio: float = 0.2,
         num_worker: int = 3,
+        uniform_eval=True,
     ) -> None:
         """
 
@@ -37,6 +38,7 @@ class ChunkSequenceTimefeatureDataLoader:
         :param train_ratio: the ratio of the training set
         :param test_ratio: the ratio of the testing set
         :param val_ratio: the ratio of the validation set
+        :param uniform_eval: if True, the evalution will not be affected by input window length
         :param independent_scaler: whether to set independent scaler for train , val and test dataset,
                 default: False, will have a global scaler for all data
                 if set to True, scaler is fitted by differenct part of data
@@ -44,6 +46,7 @@ class ChunkSequenceTimefeatureDataLoader:
         self.train_ratio = train_ratio
         self.val_ratio = val_ratio
         self.test_ratio = 1 - self.train_ratio - self.val_ratio
+        self.uniform_eval = uniform_eval
 
         assert (
             self.train_ratio + self.val_ratio + self.test_ratio == 1.0
@@ -77,14 +80,25 @@ class ChunkSequenceTimefeatureDataLoader:
         indices = range(0, len(self.dataset))
 
         train_size = int(self.train_ratio * len(self.dataset))
-        test_size = int(self.val_ratio * len(self.dataset))
-        val_size = len(self.dataset) - test_size - train_size
+        val_size = int(self.val_ratio * len(self.dataset))
+        test_size = len(self.dataset) - val_size - train_size
         train_subset = TimeseriesSubset(self.dataset, indices[0:train_size])
-        val_subset = TimeseriesSubset(
-            self.dataset, indices[train_size : (test_size + train_size)]
-        )
+        
+        if self.uniform_eval:
+            val_subset = TimeseriesSubset( # self.window + self.horizon - 1
+                self.dataset, indices[train_size - self.window - self.horizon + 1: (val_size + train_size)]
+            )
+        else:
+            val_subset = TimeseriesSubset(
+                self.dataset,indices[train_size: (val_size + train_size)]
+            )
 
-        test_subset = TimeseriesSubset(self.dataset, indices[-val_size:])
+        if self.uniform_eval:
+            test_subset = TimeseriesSubset(self.dataset, indices[-test_size - self.window - self.horizon + 1:])
+        else:
+            test_subset = TimeseriesSubset(self.dataset, indices[-test_size:])
+
+            
         if self.scale_in_train:
             self.scaler.fit(train_subset)
         else:

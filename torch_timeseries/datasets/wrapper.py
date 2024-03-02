@@ -1,17 +1,17 @@
-from typing import TypeVar
+from typing import Optional, TypeVar, Tuple
 
 import pandas as pd
 from torch_timeseries.data.scaler import MaxAbsScaler, Scaler
 
 from torch_timeseries.utils.timefeatures import time_features
-from .dataset import TimeSeriesDataset
+from .dataset import TimeSeriesDataset, TimeseriesSubset
 from torch.utils.data import Dataset
 import numpy as np
 import torch
 
 
 class MultiStepTimeFeatureSet(Dataset):
-    def __init__(self, dataset: TimeSeriesDataset, scaler: Scaler, time_enc=0, window: int = 168, horizon: int = 3, steps: int = 2, freq=None, scaler_fit=True):
+    def __init__(self, dataset: TimeseriesSubset, scaler: Scaler, time_enc=0, window: int = 168, horizon: int = 3, steps: int = 2, freq=None, scaler_fit=True):
         self.dataset = dataset
         self.window = window
         self.horizon = horizon
@@ -45,7 +45,7 @@ class MultiStepTimeFeatureSet(Dataset):
         # x_date_enc : (B, T, D)
         # y_date_eDc : (B, O, D)
         if isinstance(index, int):
-            x = self.scaled_data[index:index+self.window]
+            scaled_x = self.scaled_data[index:index+self.window]
             x_date_enc = self.date_enc_data[index:index+self.window]
             scaled_y = self.scaled_data[self.window + self.horizon - 1 +
                                  index:self.window + self.horizon - 1 + index+self.steps]
@@ -53,7 +53,7 @@ class MultiStepTimeFeatureSet(Dataset):
                                  index:self.window + self.horizon - 1 + index+self.steps]
             y_date_enc = self.date_enc_data[self.window + self.horizon -
                                             1 + index:self.window + self.horizon - 1 + index+self.steps]
-            return x, scaled_y,y, x_date_enc, y_date_enc
+            return scaled_x, scaled_y,y, x_date_enc, y_date_enc
         else:
             raise TypeError('Not surpported index type!!!')
 

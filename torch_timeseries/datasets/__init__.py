@@ -18,6 +18,7 @@ from .pems04 import PEMS04
 from .pems07 import PEMS07
 from .pems08 import PEMS08
 from .sp500 import SP500
+from .dataloader import ChunkSequenceTimefeatureDataLoader
 
 
 # __all__ = [

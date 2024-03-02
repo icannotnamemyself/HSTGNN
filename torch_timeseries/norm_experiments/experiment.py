@@ -35,15 +35,29 @@ from torch_timeseries.utils.early_stopping import EarlyStopping
 import json
 import codecs
 
-
-
 # class Task(Enum):
 #     SingleStepForecast : str = "single_step_forecast"
 #     MultiStepForecast : str = "multi_steps_forecast"
 #     Imputation : str = "imputation"
 #     Classification : str = "classifation"
 #     AbnomalyDetection : str = "abnormaly_detection"
+
+
+def kl_divergence_gaussian(mu1, Sigma1, mu2, Sigma2):
+    k = mu1.size(1)
     
+    Sigma2_inv = torch.linalg.inv(Sigma2)
+    
+    tr_term = torch.einsum('bij,bjk->bi', Sigma2_inv, Sigma1)
+    
+    mu_diff = mu2 - mu1
+    mu_term = torch.einsum('bi,bij,bj->b', mu_diff, Sigma2_inv, mu_diff)
+    
+    det_term = torch.log(torch.linalg.det(Sigma2) / torch.linalg.det(Sigma1))
+    
+    kl_div = 0.5 * (tr_term + mu_term - k + det_term)
+    
+    return kl_div.sum()
 
 @dataclass
 class ResultRelatedSettings:
@@ -578,9 +592,7 @@ class NormExperiment(Settings):
             ) in enumerate(self.train_loader):
                 origin_y = origin_y.to(self.device)
                 self.model_optim.zero_grad()
-                # if not isinstance(self.n_model, No):
-                #     self.norm_model_optim.zero_grad()
-                    
+                bs = batch_x.size(0)
                 batch_x = batch_x.to(self.device, dtype=torch.float32)
                 batch_y = batch_y.to(self.device, dtype=torch.float32)
                 batch_x_date_enc = batch_x_date_enc.to(self.device).float()
@@ -593,7 +605,75 @@ class NormExperiment(Settings):
                 if self.invtrans_loss:
                     pred = self.scaler.inverse_transform(pred)
                     true = origin_y
-                loss = self.loss_func(pred, true)
+                
+                # 
+                if  isinstance(self.model.nm, SAN):
+                    mean = self.model.pred_stats[:, :, :self.dataset.num_features]
+                    std = self.model.pred_stats[:, :, self.dataset.num_features:]
+                    sliced_true = true.reshape(bs, -1, 12, self.dataset.num_features)
+                    loss = self.loss_func(pred, true) + self.loss_func(mean, sliced_true.mean(2)) + self.loss_func(std, sliced_true.std(2))
+                    
+                # elif  isinstance(self.model.n_model, DishTS):
+                    # mean = self.model.pred_stats[:, :, :self.dataset.num_features]
+                    # std = self.model.pred_stats[:, :, self.dataset.num_features:]
+                    # loss2 = self.loss_func(mean, true.mean(1)) + self.loss_func(std, true.std(1))
+                    # loss2.backward()
+                if  isinstance(self.model.nm, PeriodV2):
+                    mean = self.model.nm.preds_mean
+                    std = self.model.nm.preds_std
+                    sliced_true = true.reshape(bs, -1, 12, self.dataset.num_features)
+                    loss = self.loss_func(pred, true) + self.loss_func(mean, sliced_true.mean(2)) + self.loss_func(std, sliced_true.std(2))
+                
+                if  isinstance(self.model.nm, PeriodFDV3):
+                    mean = self.model.nm.preds_mean
+                    std = self.model.nm.preds_std
+                    sliced_true = true.reshape(bs, -1, 12, self.dataset.num_features)
+                    loss = self.loss_func(pred, true) + self.loss_func(mean, sliced_true.mean(2)) + self.loss_func(std, sliced_true.std(2)) \
+                         + self.model.nm.loss(true)
+
+
+                elif  isinstance(self.model.nm, CovidsV2):
+                    
+                    period_len = self.model.nm.period_len
+                    mean = self.model.nm.preds_mean
+                    sigma = self.model.nm.preds_sigma
+                    
+                    sliced_true = true.reshape(bs, -1, period_len, self.dataset.num_features) # (B, M', T, N)
+                    sliced_mean = torch.mean(sliced_true, dim=-2, keepdim=True) # (B, M, 1, N)
+                    input_center = sliced_true - sliced_mean # (B, M, T, N)
+                    sigma_true = torch.einsum('bmtv,bmtn->bmvn', input_center, input_center) / (period_len - 1) # (B, M, N, N)
+                    
+                    loss = self.loss_func(pred, true) + self.loss_func(mean, sliced_true.mean(2)) + self.loss_func(sigma , sigma_true)
+                elif  isinstance(self.model.nm, SNv2):
+                    mean = self.model.nm.preds_mean
+                    std = self.model.nm.preds_std
+                    loss = self.loss_func(pred, true) + self.loss_func(mean, true) + self.loss_func(std[:, -1, :], true.std(1))
+                elif  isinstance(self.model.nm, SNv4):
+                    mean = self.model.nm.preds_mean
+                    std = self.model.nm.preds_std
+                    loss = self.loss_func(pred, true) + self.loss_func(mean, true) 
+                    
+
+                elif  isinstance(self.model.nm, CovidsV3) or isinstance(self.model.nm, CovidsV4):
+                    period_len = self.model.nm.period_len
+                    N = self.dataset.num_features
+                    sliced_true = true.reshape(bs, -1, period_len, N) # (B, M', T, N)
+                    sliced_mean = torch.mean(sliced_true, dim=-2, keepdim=True) # (B, M, 1, N)
+                    input_center = sliced_true - sliced_mean # (B, M, T, N)
+
+                    sigma_true = torch.einsum('bmtv,bmtn->bmvn', input_center, input_center) / (period_len - 1) # (B, M, N, N)
+                    
+                    nm = self.model.nm
+                    mean = self.model.nm.preds_mean
+                    loss = self.loss_func(pred, true) \
+                        + ((nm.x_norm_mean)**2).mean()  + ((nm.Sigma_norm - torch.eye(N).to(self.device))**2).mean() \
+                        + ((nm.preds_mean - sliced_mean.squeeze(2))**2).mean()  + ((nm.output_Sigma - sigma_true)**2).mean()
+                        # kl_divergence_gaussian(mean, self.model.nm., , ,sigma_true.reshape(-1, ))
+                
+                else:
+                    loss = self.loss_func(pred, true)
+
+                
                 loss.backward()
 
                 torch.nn.utils.clip_grad_norm_(
@@ -609,8 +689,6 @@ class NormExperiment(Settings):
                 )
 
                 self.model_optim.step()
-                # if not isinstance(self.n_model, No):
-                #     self.norm_model_optim.step()
             return train_loss
     def _check_run_exist(self, seed: str):
         if not os.path.exists(self.run_save_dir):

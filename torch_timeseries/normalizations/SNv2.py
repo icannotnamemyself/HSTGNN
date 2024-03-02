@@ -21,6 +21,8 @@ class SNv2(nn.Module):
         self.model = MLP(self.seq_len, self.pred_len, self.enc_in, mode='mean')
         self.model_std = MLP( self.seq_len, self.pred_len, self.enc_in, mode='std')
 
+
+
     def normalize(self, batch_x):
         # (B, T, N)
         Q = batch_x.unsqueeze(-1).permute(0, 3,1,2) * self.sample_parameter.unsqueeze(0)
