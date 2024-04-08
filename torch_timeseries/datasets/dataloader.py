@@ -28,7 +28,7 @@ class ChunkSequenceTimefeatureDataLoader:
         train_ratio: float = 0.7,
         val_ratio: float = 0.2,
         num_worker: int = 3,
-        uniform_eval=True,
+        uniform_eval=False,
     ) -> None:
         """
 

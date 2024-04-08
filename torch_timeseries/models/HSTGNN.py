@@ -1,19 +1,11 @@
 from typing import List, Tuple
+import pyro
 import torch
 from torch import nn
-from torch_timeseries.layers.heterostgcn5 import HeteroFASTGCN as HeteroFASTGCN5
-from torch_timeseries.layers.heterostgcn6 import HeteroFASTGCN as HeteroFASTGCN6
 from torch_timeseries.layers.han import HAN
-from torch_timeseries.layers.tcn_output2 import TCNOuputLayer as TCNOuputLayer2
-from torch_timeseries.layers.tcn_output3 import TCNOuputLayer as TCNOuputLayer3
-from torch_timeseries.layers.tcn_output4 import TCNOuputLayer as TCNOuputLayer4
-from torch_timeseries.layers.tcn_output8 import TCNOuputLayer as TCNOuputLayer8
-from torch_timeseries.layers.tcn_output9_norm import TCNOuputLayer as TCNOuputLayer9
-from torch_timeseries.layers.tcn_output import TCNOuputLayer
-from torch_timeseries.layers.nlinear_output import NlinearOuputLayer
-from torch_timeseries.layers.weighted_han import WeightedHAN
-from torch_timeseries.layers.weighted_han_update import WeightedHAN as WeightedHANUpdate
-from torch_timeseries.layers.weighted_han_update2 import WeightedHAN as WeightedHANUpdate2
+from torch_timeseries.layers.dilated_convolution import DilatedConvolution
+# from torch_timeseries.layers.weighted_han_update9 import WeightedHAN as WeightedHANUpdate9
+from torch_timeseries.layers.HSTGAttn import HSTGAttn
 from torch_timeseries.layers.graphsage import MyGraphSage, MyFAGCN
 
 
@@ -23,8 +15,8 @@ class HSTGNN(nn.Module):
         seq_len,
         num_nodes,
         temporal_embed_dim,
-        graph_build_type="adaptive", # "predefined_adaptive"
-        graph_conv_type="weighted_han",
+        graph_build_type="attsim_direc_tt_mask3", # "predefined_adaptive"
+        graph_conv_type="HSTGAttn",
         output_layer_type='tcn8',
         heads=1,
         negative_slope=0.2,
@@ -32,7 +24,7 @@ class HSTGNN(nn.Module):
         rebuild_time=True,
         rebuild_space=True,
         node_static_embed_dim=16,
-        latent_dim=16,
+        latent_dim=32,
         tcn_layers=5,
         dilated_factor=2,
         tcn_channel=16,
@@ -44,7 +36,9 @@ class HSTGNN(nn.Module):
         without_tn_module=False,
         without_gcn=False,
         d0=2,
-        kernel_set=[2,3,6,7]
+        kernel_set=[2,3,6,7],
+        normalization=True,
+        conv_type='all'
     ):
         super(HSTGNN, self).__init__()
 
@@ -57,7 +51,8 @@ class HSTGNN(nn.Module):
         self.self_loop_eps = self_loop_eps
         self.without_tn_module = without_tn_module
         self.kernel_set = kernel_set
-
+        self.normalization =normalization
+        self.conv_type = conv_type
         self.spatial_encoder = SpatialEncoder(
             seq_len,
             num_nodes,
@@ -90,87 +85,44 @@ class HSTGNN(nn.Module):
         self.tn_modules = nn.ModuleList()
         
         if not self.without_tn_module:
-            for i in range(1):
-                self.tn_modules.append(
-                    TNModule(
-                        num_nodes,
-                        seq_len,
-                        latent_dim,
-                        gcn_layers,
-                        graph_build_type=graph_build_type,
-                        graph_conv_type=graph_conv_type,
-                        heads=self.heads,
-                        negative_slope=self.negative_slope,
-                        dropout=dropout,
-                        act=act,
-                        predefined_adj=predefined_adj,
-                        self_loop_eps=self.self_loop_eps,
-                        without_gcn=without_gcn
-                    )
+            self.tn_modules.append(
+                HSTG(
+                    num_nodes,
+                    seq_len,
+                    latent_dim,
+                    gcn_layers,
+                    graph_build_type=graph_build_type,
+                    graph_conv_type=graph_conv_type,
+                    conv_type=conv_type,
+                    heads=self.heads,
+                    negative_slope=self.negative_slope,
+                    dropout=dropout,
+                    act=act,
+                    predefined_adj=predefined_adj,
+                    self_loop_eps=self.self_loop_eps,
+                    without_gcn=without_gcn
                 )
+            )
 
         out_channels = 1
         if rebuild_space:
             out_channels = out_channels + 1
         if rebuild_time:
             out_channels = out_channels + 1
-        if output_layer_type == 'tcn6':
-            if out_seq_len == 1:
-                self.output_layer = TCNOuputLayer(
-                    input_seq_len=seq_len,
-                    out_seq_len=self.out_seq_len,
-                    tcn_layers=tcn_layers,
-                    dilated_factor=dilated_factor,
-                    in_channel=out_channels,
-                    tcn_channel=tcn_channel,
-                )
-            else:
-                self.output_layer = TCNOuputLayer4(
-                    input_seq_len=seq_len,
-                    num_nodes=self.num_nodes,
-                    out_seq_len=self.out_seq_len,
-                    tcn_layers=tcn_layers,
-                    dilated_factor=dilated_factor,
-                    in_channel=out_channels,
-                    tcn_channel=tcn_channel,
-                )
-        elif output_layer_type == 'tcn7':
-            self.output_layer = TCNOuputLayer4(
-                input_seq_len=seq_len,
-                num_nodes=self.num_nodes,
-                out_seq_len=self.out_seq_len,
-                tcn_layers=tcn_layers,
-                dilated_factor=dilated_factor,
-                in_channel=out_channels,
-                tcn_channel=tcn_channel,
-            )
-        elif output_layer_type == 'tcn8':
-            self.output_layer = TCNOuputLayer8(
-                input_seq_len=seq_len,
-                num_nodes=self.num_nodes,
-                out_seq_len=self.out_seq_len,
-                tcn_layers=tcn_layers,
-                dilated_factor=dilated_factor,
-                in_channel=out_channels,
-                tcn_channel=tcn_channel,
-                d0=d0,
-                kernel_set=kernel_set,
-            )
-        elif output_layer_type == 'tcn9':
-            self.output_layer = TCNOuputLayer9(
-                input_seq_len=seq_len,
-                num_nodes=self.num_nodes,
-                out_seq_len=self.out_seq_len,
-                tcn_layers=tcn_layers,
-                dilated_factor=dilated_factor,
-                in_channel=out_channels,
-                tcn_channel=tcn_channel,
-                d0=d0,
-                kernel_set=kernel_set,
-            )
-
-        else:
-            raise NotImplementedError(f"output layer type {output_layer_type} not implemented")
+            
+            
+        self.output_layer = DilatedConvolution(
+            input_seq_len=seq_len,
+            num_nodes=self.num_nodes,
+            out_seq_len=self.out_seq_len,
+            tcn_layers=tcn_layers,
+            dilated_factor=dilated_factor,
+            in_channel=out_channels,
+            tcn_channel=tcn_channel,
+            act=act,
+            d0=d0,
+            kernel_set=kernel_set,
+        )
 
 
 
@@ -179,6 +131,11 @@ class HSTGNN(nn.Module):
         in :  (B, N, T)
         out:  (B, N, latent_dim)
         """
+        if self.normalization:
+            seq_last = x[:,:,-1:].detach()
+            x = x - seq_last
+        # import pdb;pdb.set_trace()
+        # residual = x
 
         Xs = self.spatial_encoder(x)
         Xt = self.temporal_encoder(x.transpose(1, 2), x_enc_mark)
@@ -205,15 +162,19 @@ class HSTGNN(nn.Module):
 
         # output module
         X = torch.cat(outputs, dim=1)  # （B, 1/2/3, N, T)
-        X = self.output_layer(X)  # (B, N+T, 1)
+        X = self.output_layer(X)  # (B, O, N)
+        
+        
+        if self.normalization:
+            X = (X.transpose(1,2) + seq_last).transpose(1,2)
 
         return X
 
 
-class TNModule(nn.Module):
+class HSTG(nn.Module):
     def __init__(
         self, num_nodes, seq_len, latent_dim, gcn_layers, graph_build_type="adaptive",
-        graph_conv_type='fastgcn5',heads=1,negative_slope=0.2,dropout=0.0,act='elu',self_loop_eps=0.5,without_gcn=False,
+        graph_conv_type='fastgcn5',conv_type='all',heads=1,negative_slope=0.2,dropout=0.0,act='elu',self_loop_eps=0.5,without_gcn=False,
         predefined_adj=None
     ) -> None:
         super().__init__()
@@ -226,17 +187,10 @@ class TNModule(nn.Module):
         self.act=  act
         self.self_loop_eps = self_loop_eps
         self.without_gcn =without_gcn
-        if graph_build_type == "adaptive":
-            self.graph_constructor = STGraphConstructor(self_loop_eps=self.self_loop_eps)
-        elif graph_build_type == "predefined_adaptive":
-            assert predefined_adj is not None, "predefined_NN_adj must be provided"
-            self.graph_constructor = STGraphConstructor(predefined_adj=predefined_adj,self_loop_eps=self.self_loop_eps)
-        elif graph_build_type == "fully_connected":
-            self.graph_constructor = STGraphConstructor(predefined_adj=None, adaptive=False,self_loop_eps=self.self_loop_eps)
-            print("graph_build_type is fully_connected")
+        self.conv_type = conv_type
+        self.graph_constructor = GraphConstructor(predefined_adj=None,latent_dim=latent_dim,tt_mask=True, N=num_nodes, O=seq_len)
 
-        # if graph_conv_type == 'gcn':
-        #     pass
+
         if not self.without_gcn:
             if graph_conv_type == 'graphsage':
                 self.graph_conv = MyGraphSage(latent_dim, latent_dim, gcn_layers,act='elu')
@@ -247,37 +201,11 @@ class TNModule(nn.Module):
                     num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
                     heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act
                 )
-            elif graph_conv_type == 'weighted_han':
-                self.graph_conv = WeightedHAN(
+            elif graph_conv_type == 'HSTGAttn':
+                self.graph_conv = HSTGAttn(
                     num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
                     heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
-                    conv_type='all'
-                )
-            elif graph_conv_type == 'weighted_han_update':
-                self.graph_conv = WeightedHANUpdate(
-                    num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
-                    heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
-                    conv_type='all'
-                )
-            elif graph_conv_type == 'weighted_han_update2':
-                self.graph_conv = WeightedHANUpdate2(
-                    num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
-                    heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
-                    conv_type='all'
-                )
-
-
-            elif graph_conv_type == 'weighted_han_homo':
-                self.graph_conv = WeightedHAN(
-                    num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
-                    heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
-                    conv_type='homo'
-                )
-            elif graph_conv_type == 'weighted_han_hetero':
-                self.graph_conv = WeightedHAN(
-                    num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
-                    heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
-                    conv_type='hetero'
+                    conv_type=self.conv_type
                 )
             else:
                 raise NotImplementedError("Unknown graph_conv")
@@ -323,17 +251,13 @@ class SpatialEncoder(nn.Module):
         in :  (B, N, T)
         out:  (B, N, latent_dim)
         """
-
-        # 获取输入张量x的形状
         B, N, T = x.size()
         assert N == self.num_nodes
         # set dtype to LongType
         static_embeding = self.static_node_embedding.weight.expand(B, N, -1)
 
-        # 将static_embedding和x沿最后一个维度连接，得到(B, N, T+static_embed_dim)的新张量
         x = torch.cat((x, static_embeding), dim=2)
 
-        # 对combined_x进行进一步处理和计算
         spatial_encode  = self.spatial_projection(x)
 
         return spatial_encode
@@ -366,67 +290,135 @@ class TemporalEncoder(nn.Module):
 
         out:  (B, T, latent_dim)
         """
-        # 获取输入张量x的形状
         B, T, N = x.size()
         assert T == self.seq_len
         static_embeding = self.static_node_embedding.weight.expand(B, T, -1)
         if self.temporal_embed_dim  > 0:
-            # 将static_embedding和x沿最后一个维度连接，得到(B, T, N+D_t +static_embed_dim)的新张量
             x = torch.concat((x, x_enc_mark, static_embeding), dim=2)
         else:
             x = torch.concat((x, static_embeding), dim=2)
 
-        # 对combined_x进行进一步处理和计算
         temporal_encode , _= self.temporal_projection(x)
         return temporal_encode
 
 
-class STGraphConstructor(nn.Module):
-    def __init__(self, predefined_adj=None, adaptive=True,self_loop_eps=0.5):
-        super(STGraphConstructor, self).__init__()
+
+
+class GraphConstructor(nn.Module):
+    def __init__(self, predefined_adj=None, latent_dim=32,tt_mask=True, alpha=3, N=0, O=0):
+        super(GraphConstructor, self).__init__()
         self.predefined_adj =predefined_adj
-        self.adaptive =adaptive
-        self.self_loop_eps = self_loop_eps
+        self.relation_attention_model = nn.ModuleDict({
+            'st': AttentionMechanism(latent_dim),
+            'ts': AttentionMechanism(latent_dim),
+        })
+
+
+        self.tt_mask = tt_mask
+        self.alpha = alpha
         
+        
+        self.ss_x1_lin = nn.Linear(latent_dim, latent_dim, bias=False)
+        self.ss_x2_lin = nn.Linear(latent_dim, latent_dim, bias=False)
+    
+    def build_sub_graph(self, x1, x2, relation_name):
+        
+        if relation_name =='ss':
+            return self.build_ss_graph(x1, x2)
+        
+        B, N1, D = x1.size()
+        B ,N2, D = x2.size()
+        x1_expanded = x1.unsqueeze(2)  # 维度变为 [B, N1, 1, D]
+        x2_expanded = x2.unsqueeze(1)  # 维度变为 [B, 1, N2, D]
+
+        x1_tiled = x1_expanded.repeat(1, 1, N2, 1)  # [B, N1, N2, D]
+        x2_tiled = x2_expanded.repeat(1, N1, 1, 1)  # [B, N1, N2, D]
+        x_combined = torch.cat((x1_tiled, x2_tiled), dim=-1)  # [B, N, O, 2D]
+        x_combined = x_combined.reshape(B, N1 * N2, -1)  # [B, N*O, 2D]
+        
+        adj_  = self.relation_attention_model[relation_name](x1, x2)
+        adj_ = adj_.reshape(B, N1, N2)  # [B, N, O]
+        
+        return adj_ 
+
+    def build_tt_graph(self, x1, x2):
+        B, N1, D = x1.size()
+        B ,N2, D = x2.size()
+        
+        nodevec1 = torch.tanh(self.alpha*self.ss_x1_lin(x1))
+        nodevec2 = torch.tanh(self.alpha*self.ss_x2_lin(x2))
+        adj =  torch.tanh(torch.einsum("bnf, bmf -> bnm", nodevec1, nodevec2)  -   torch.einsum("bnf, bmf -> bnm", nodevec2, nodevec1))
+        return adj 
+
+    def build_ss_graph(self, x1, x2):
+        B, N1, D = x1.size()
+        B ,N2, D = x2.size()
+        
+        nodevec1 = torch.tanh(self.alpha*self.ss_x1_lin(x1))
+        nodevec2 = torch.tanh(self.alpha*self.ss_x2_lin(x2))
+        adj =  self.alpha*(torch.einsum("bnf, bmf -> bnm", nodevec1, nodevec2)  -   torch.einsum("bnf, bmf -> bnm", nodevec2, nodevec1))
+        return adj 
+    
+    def uni_adj(self, adj):
+        epsilon = 1e-30  # 一个小常数，防止数值不稳定
+        div = torch.max(torch.relu(adj))
+        if div == 0:
+            adj_processed = torch.tanh(torch.relu(adj))
+        else:
+            adj_processed = torch.tanh(torch.relu(adj) / (div + epsilon))  # 加入小常数 epsilon 防止数值不稳定
+        return torch.nan_to_num(adj_processed)  # 处理可能的 nan 值
+    
+    def build_graph(self, spatial_nodes, temporal_nodes):
+        B, N, D = spatial_nodes.size()
+        _, T, _ = temporal_nodes.size()
+        node_embs = torch.concat([spatial_nodes, temporal_nodes], dim=1)
+        adj = torch.einsum("bnf, bmf -> bnm", node_embs, node_embs) 
+        ss_adj = adj[:, :N, :N] + self.build_ss_graph(spatial_nodes, spatial_nodes) 
+        st_adj  = adj[:, :N, N:] + self.build_sub_graph(spatial_nodes, temporal_nodes , 'st')
+        ts_adj =  adj[:, N:, :N] + self.build_sub_graph(temporal_nodes, spatial_nodes, 'ts')
+        tt_adj = adj[:, N:, N:]
+        
+        
+        if self.predefined_adj is not None:
+            # avoid inplace operation 
+            mask =  self.predefined_adj[:N, :N] != 0
+            result = self.predefined_adj[:N, :N] * mask
+            ss_adj = ss_adj * result
+            # ss_adj = ss_adj + self.predefined_adj[:N, :N]
+            
+        ss_adj=   self.uni_adj(ss_adj)
+        st_adj =  self.uni_adj(st_adj) #torch.tanh( torch.relu(st_adj))# * F.softmax(st_adj, dim=1)
+        ts_adj =  self.uni_adj(ts_adj) #torch.tanh( torch.relu( ts_adj)) #* F.softmax(ts_adj, dim=1)
+        tt_adj = self.uni_adj(tt_adj) #torch.tanh( torch.relu(tt_adj) / torch.max(torch.relu(tt_adj))  ) #* F.softmax(tt_adj, dim=1)
+        
+
+        adj[:, :N, :N]=  ss_adj#/torch.max(ss_adj)   #* F.softmax(ss_adj, dim=1)
+        adj[:, :N, N:] = st_adj#/torch.max(st_adj)# * F.softmax(st_adj, dim=1)
+        adj[:, N:, :N] = ts_adj#/torch.max(ts_adj)   #* F.softmax(ts_adj, dim=1)
+        adj[:, N:, N:]  = tt_adj#/torch.max(tt_adj)  #* F.softmax(tt_adj, dim=1)
+
+        return adj
+
+
+
     def forward(
         self, spatial_nodes, temporal_nodes
     ) -> Tuple[torch.Tensor, List[torch.Tensor], List[torch.Tensor]]:
         # spatial nodes: (B, N, D)
         # temporal nodes: (B, T, D)
         # A : (N,T), (T , N)
+        spatial_nodes = spatial_nodes.detach()
+        temporal_nodes = temporal_nodes.detach()
+
         B, N, D = spatial_nodes.size()
         _, T, _ = temporal_nodes.size()
-        node_embs = torch.concat([spatial_nodes, temporal_nodes], dim=1)
         
+        adj = self.build_graph(spatial_nodes, temporal_nodes)
+                # predefined adjcent matrix        
 
-        if not self.adaptive:
-            adj = torch.ones(B, N+T, N+T).to(node_embs.device)
-        else:
-            
-            # predefined adjcent matrix        
-            if self.predefined_adj is not None:
-                # avoid inplace operation 
-                adj = torch.einsum("bnf, bmf -> bnm", node_embs, node_embs) + self.predefined_adj
-            else:
-                adj = torch.einsum("bnf, bmf -> bnm", node_embs, node_embs) 
-            
-            
-            adj = torch.tanh( torch.relu(adj))
-            eye = torch.eye(N+T,N+T).to(adj.device)  # Ensure the unit matrix is on the same device as x
-            eye_expanded = eye.unsqueeze(0).repeat(B, 1, 1)  # Expand the unit matrix to shape (B, N, N)
-            adj =adj + eye_expanded * self.self_loop_eps
-    
-            # # predefined adjcent matrix        
-            # if self.predefined_NN_adj is not None:
-            #     # avoid inplace operation 
-            #     new_adj = adj.clone()
-            #     new_adj[:, :N, :N] = new_adj[:, :N, :N] * self.normalized_predefined_adj.repeat(B, 1, 1)
-            #     adj = new_adj
 
-            # eye_expanded = eye.unsqueeze(0).repeat(B, 1, 1)  # Expand the unit matrix to shape (B, N, N)
-            # adj = torch.tanh(adj + eye_expanded)
-        
-        
+        if self.tt_mask:
+            adj[:, N:, N:] = torch.triu(adj[:, N:, N:])
 
         batch_indices = list()
         batch_values = list()
@@ -438,3 +430,26 @@ class STGraphConstructor(nn.Module):
             batch_values.append(edge_weights)
         return adj, batch_indices, batch_values
 
+
+class AttentionMechanism(nn.Module):
+    def __init__(self, dim):
+        super(AttentionMechanism, self).__init__()
+        self.query = nn.Linear(dim, dim)
+        self.key = nn.Linear(dim, dim)
+        self.value = nn.Linear(dim, dim)
+
+
+    def forward(self, x1, x2):
+        # Generate query, key, value
+        q = self.query(x1)  # [B, N1, D]
+        k = self.key(x2)    # [B, N2, D]
+        # v = self.value(x2)  # [B, N2, D]
+
+        # Compute attention scores
+        attn_scores = torch.matmul(q, k.transpose(-2, -1))  # [B, N1, N2]
+        # attn_scores = F.softmax(attn_scores, dim=1)
+
+        # Apply attention to the values
+        # attn_output = torch.matmul(attn_scores, v)  # [B, N1, D]
+
+        return attn_scores

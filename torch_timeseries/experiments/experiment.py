@@ -26,7 +26,6 @@ from torch_timeseries.datasets.dataloader import (
     DDPChunkSequenceTimefeatureDataLoader,
 )
 from torch_timeseries.datasets.wrapper import MultiStepTimeFeatureSet
-from torch_timeseries.models.Informer import Informer
 from torch.nn import MSELoss, L1Loss
 
 from torch.optim import Optimizer, Adam
@@ -35,19 +34,12 @@ from torch.utils.data import Dataset, DataLoader, RandomSampler, Subset
 from torch.nn import DataParallel
 from dataclasses import asdict, dataclass
 
+from torch_timeseries.metrics.masked_mape import MaskedMAPE
 from torch_timeseries.nn.metric import R2, Corr, TrendAcc,RMSE, compute_corr, compute_r2
 from torch_timeseries.utils.early_stopping import EarlyStopping
 import json
 import codecs
 
-
-
-# class Task(Enum):
-#     SingleStepForecast : str = "single_step_forecast"
-#     MultiStepForecast : str = "multi_steps_forecast"
-#     Imputation : str = "imputation"
-#     Classification : str = "classifation"
-#     AbnomalyDetection : str = "abnormaly_detection"
     
 
 @dataclass
@@ -201,7 +193,7 @@ class Experiment(Settings):
                 metrics={
                     "mse": MeanSquaredError(),
                     "mae": MeanAbsoluteError(),
-                    "mape": MeanAbsolutePercentageError(),
+                    "mape": MaskedMAPE(null_val=0),
                     'rmse': RMSE(),
                 }
             )
@@ -483,9 +475,8 @@ class Experiment(Settings):
                     if self.invtrans_loss:
                         preds = self.scaler.inverse_transform(preds)
                         truths = batch_origin_y
-
                     if self.pred_len == 1:
-                        self.metrics.update(preds.view(batch_size, -1), truths.view(batch_size, -1))
+                        self.metrics.update(preds.contiguous().reshape(batch_size, -1), truths.contiguous().reshape(batch_size, -1))
                     else:
                         self.metrics.update(preds.contiguous(), truths.contiguous())
 
