@@ -1,11 +1,7 @@
 #!/bin/bash
 
-# 24G 可以跑 2 个ETT + 一个小 
+# ./scripts/single_step.sh "3 6 12" "ETTm1 ETTm2"  "cuda:2" HSTGNN
 
-# running
-# t1 : ./scripts/single_step.sh "3 6 12" "ETTm1 ETTm2"  "cuda:2" HSTGNN
-
-# t1 : ./scripts/run.sh "3 6 12 24" "ExchangeRate ILI SP500"  "cuda:2"
 
 declare -A dataset_to_window_map
 
@@ -31,8 +27,7 @@ do
     for horizon in "${horizons[@]}"
     do
         echo "Running with dataset = $dataset and horizon = $horizon and window= $window"
-        # CUDA_DEVICE_ORDER=PCI_BUS_ID python3 ./torch_timeseries/cli/hstgnnv7.py --dataset_type="$dataset" --device="$device" --batch_size=32 --horizon="$horizon" --windows $window --epochs=100 config_wandb --project=HSTGNN --name="HSTGNN" runs --seeds='[42,233,666,19971203,19980224]'
-        CUDA_DEVICE_ORDER=PCI_BUS_ID python3 ./torch_timeseries/experiments/$model.py --dataset_type="$dataset" --device="$device" --batch_size=32 --horizon="$horizon" --windows $window --epochs=20  runs --seeds='[42,233]'
+        CUDA_DEVICE_ORDER=PCI_BUS_ID python3 ./torch_timeseries/experiments/$model.py --dataset_type="$dataset" --device="$device" --batch_size=32 --horizon="$horizon" --windows $window --epochs=20  runs --seeds='[42,233,666,19971203,19980224]'
     done
 done
 
