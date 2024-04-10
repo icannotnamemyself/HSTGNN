@@ -1,4 +1,3 @@
-[TOC]
 # Heterogeneous Spatial Temporal Graph Neural Netork
 
 This is the offcial repository of paper "Heterogeneous Spatial Temporal Graph Neural Netork For Multivariate Time Series Forecasting"
@@ -6,6 +5,21 @@ This is the offcial repository of paper "Heterogeneous Spatial Temporal Graph Ne
 ![HSTGNN](./fig/overview.png)
 
 
+
+# prepare datasets
+
+## single-step
+
+
+ETTh1, ETTh2, ETTm1, ETTm2, ExchangeRate, ILI, Weather, Electricity will be downloaded automatically
+
+for SP500 dataset, download from https://archive.ics.uci.edu/dataset/554/cnnpred+cnn+based+stock+market+prediction+using+a+diverse+set+of+variables, and put into ./data/SP500 as ./data/SP500/sp500.csv file
+
+## multi-step
+
+PEMS04, PEMS07 datasets are collected from https://github.com/Davidham3/STSGCN
+
+PEMS-BAY, METR-LA datasets are collected from https://github.com/liyaguang/DCRNN
 
 # Run baseline&HSTGNN
 
@@ -15,6 +29,8 @@ to run our code, please first install all the requirements, we assume that you h
 ```
 pip install -r ./requirements.txt
 ```
+
+
 
 
 ## 2. run scripts
