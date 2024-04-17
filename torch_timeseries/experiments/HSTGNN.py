@@ -1,23 +1,12 @@
-import random
-import time
-from typing import Dict, List, Type
-import numpy as np
+from typing import List
 import torch
-from tqdm import tqdm
 from torch_timeseries.data.scaler import *
 from torch_timeseries.datasets import *
 from torch_timeseries.datasets.dataset import TimeSeriesDataset, TimeSeriesStaticGraphDataset
-from torch_timeseries.datasets.splitter import SequenceSplitter
-from torch_timeseries.datasets.wrapper import MultiStepTimeFeatureSet
 from torch_timeseries.experiments.experiment import Experiment
 from torch_timeseries.models import  HSTGNN
-from torch_timeseries.nn.metric import TrendAcc, R2, Corr
-from torch.nn import MSELoss, L1Loss
-from torchmetrics import MetricCollection, R2Score, MeanSquaredError
-from torch.utils.data import Dataset, DataLoader, RandomSampler, Subset
 
 
-from torch.optim import Optimizer, Adam
 
 import wandb
 
@@ -27,8 +16,7 @@ from dataclasses import dataclass, asdict, field
 @dataclass
 class HSTGNNExperiment(Experiment):
     model_type: str = "HSTGNN"
-    
-    gcn_type:str='HSTGAttn'
+    gcn_type : str = 'HSTGAttn'
     # graph_build_type:str='attsim_direc_tt_mask3_no_predefined'
     graph_build_type:str='attsim_direc_tt_mask3_no_predefined'
     output_layer_type:str='tcn8'
@@ -72,6 +60,7 @@ class HSTGNNExperiment(Experiment):
             temporal_embed_dim = 0
         else:
             temporal_embed_dim = 4
+        print("self gcn type", self.conv_type)
         self.model = HSTGNN(
             normalization=self.normalization,
             seq_len=self.windows,

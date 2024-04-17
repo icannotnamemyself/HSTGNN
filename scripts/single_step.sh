@@ -27,7 +27,7 @@ do
     for horizon in "${horizons[@]}"
     do
         echo "Running with dataset = $dataset and horizon = $horizon and window= $window"
-        CUDA_DEVICE_ORDER=PCI_BUS_ID python3 ./torch_timeseries/experiments/$model.py --dataset_type="$dataset" --device="$device" --batch_size=32 --horizon="$horizon" --windows $window --epochs=100  runs --seeds='[42,233,666,19971203,19980224]'
+        CUDA_DEVICE_ORDER=PCI_BUS_ID python3 ./torch_timeseries/experiments/$model.py --dataset_type="$dataset" --device="$device" --batch_size=32 --horizon="$horizon" --windows $window --epochs=20  runs --seeds='[42,233,666,19971203,19980224]'
     done
 done
 

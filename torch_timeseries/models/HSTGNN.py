@@ -2,11 +2,13 @@ from typing import List, Tuple
 import pyro
 import torch
 from torch import nn
-from torch_timeseries.layers.han import HAN
+from torch_timeseries.layers.HAN import HAN
+from torch_timeseries.layers.HGT import HGT
+from torch_timeseries.layers.MAGNN import MAGNN
 from torch_timeseries.layers.dilated_convolution import DilatedConvolution
 # from torch_timeseries.layers.weighted_han_update9 import WeightedHAN as WeightedHANUpdate9
 from torch_timeseries.layers.HSTGAttn import HSTGAttn
-from torch_timeseries.layers.graphsage import MyGraphSage, MyFAGCN
+from torch_timeseries.layers.GraphSage import GraphSage, GCN
 
 
 class HSTGNN(nn.Module):
@@ -150,7 +152,6 @@ class HSTGNN(nn.Module):
         Xt = X[:, self.num_nodes :, :]  # (B, T, D)
         
         
-        
         outputs = list()
         if self.rebuild_space:
             n_output = self.feature_rebuild(Xs)  # (B, N, T)
@@ -192,12 +193,17 @@ class HSTG(nn.Module):
 
 
         if not self.without_gcn:
-            if graph_conv_type == 'graphsage':
-                self.graph_conv = MyGraphSage(latent_dim, latent_dim, gcn_layers,act='elu')
-            elif graph_conv_type == 'fagcn':
-                self.graph_conv = MyFAGCN(latent_dim, latent_dim, gcn_layers,act='elu')
-            elif graph_conv_type == 'han':
+            if graph_conv_type == 'GraphSage':
+                self.graph_conv = GraphSage(latent_dim, latent_dim, gcn_layers,act='elu')
+            elif graph_conv_type == 'GCN':
+                self.graph_conv = GCN(latent_dim, latent_dim, gcn_layers,act='elu')
+            elif graph_conv_type == 'HAN':
                 self.graph_conv = HAN(
+                    num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
+                    heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act
+                )
+            elif graph_conv_type == 'HGT':
+                self.graph_conv = HGT(
                     num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
                     heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act
                 )
@@ -207,8 +213,14 @@ class HSTG(nn.Module):
                     heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
                     conv_type=self.conv_type
                 )
+            elif graph_conv_type == 'MAGNN':
+                self.graph_conv = MAGNN(
+                    num_nodes, seq_len, latent_dim, latent_dim,latent_dim, gcn_layers,
+                    heads=self.heads, negative_slope=self.negative_slope, dropout=self.dropout,act=self.act,
+                    conv_type=self.conv_type
+                )
             else:
-                raise NotImplementedError("Unknown graph_conv")
+                raise NotImplementedError("Unknown graph_conv", graph_conv_type)
 
     def forward(self, X):
         """

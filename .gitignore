@@ -4,6 +4,7 @@
 
 data
 data/*
+results
 dist
 build
 .vscode

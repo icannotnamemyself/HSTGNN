@@ -14,7 +14,7 @@ from torch_geometric.nn import HeteroConv, GCNConv, SAGEConv, GATConv, Linear
 
 
 
-class MyGraphSage(nn.Module):
+class GraphSage(nn.Module):
     def __init__(
         self, in_channels, hidden_channels, n_layers, 
         out_channels=None, dropout=0, norm=None,
@@ -164,7 +164,7 @@ class EGraphSage(MessagePassing):
 
 
 
-class MyFAGCN(MyGraphSage):
+class GCN(GraphSage):
     def __init__(
         self, in_channels, hidden_channels, n_layers, out_channels=None,
         dropout=0, norm=None, act='relu', act_first=False, eps=0.1, **kwargs

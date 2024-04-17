@@ -36,6 +36,18 @@ pip install -r ./requirements.txt
 ## 2. run scripts
 
 
+Please first source this init.sh script:
+
+```
+source ./init.sh 
+```
+
+or manually add this directory to your PATHONPATH environment variable
+
+```
+export PYTHONPATH=./
+```
+
 ### single-step experiment
 
 Please change the settings in the following for what you need.
