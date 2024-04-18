@@ -25,7 +25,8 @@ PEMS-BAY, METR-LA datasets are collected from https://github.com/liyaguang/DCRNN
 
 ## 1. install requirements
 
-to run our code, please first install all the requirements, we assume that you have installed torch and pyg according to your environment
+1. to run our code, **Please make sure your python version is >=3.8.**
+2. install all the requirements, we assume that you have installed torch and pyg according to your environment
 ```
 pip install -r ./requirements.txt
 ```

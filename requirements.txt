@@ -2,3 +2,4 @@ tqdm
 torchmetrics
 einops
 class-resolver
+torchvision
