@@ -1,4 +1,4 @@
-# Heterogeneous Spatial Temporal Graph Neural Netork
+# Heterogeneous Spatial Temporal Graph Neural Network
 
 This is the offcial repository of paper "Heterogeneous Spatial Temporal Graph Neural Netork For Multivariate Time Series Forecasting"
 
