@@ -1,4 +1,4 @@
-# Heterogeneous Spatial Temporal Graph Neural Network
+# 1 Heterogeneous Spatial Temporal Graph Neural Network
 
 This is the offcial repository of paper "Heterogeneous Spatial Temporal Graph Neural Netork For Multivariate Time Series Forecasting"
 
@@ -6,7 +6,7 @@ This is the offcial repository of paper "Heterogeneous Spatial Temporal Graph Ne
 
 
 
-# prepare datasets
+# 2 Prepare Datasets
 
 ## single-step
 
@@ -21,9 +21,9 @@ PEMS04, PEMS07 datasets are collected from https://github.com/Davidham3/STSGCN
 
 PEMS-BAY, METR-LA datasets are collected from https://github.com/liyaguang/DCRNN
 
-# Run baseline&HSTGNN
+# 3 Run baseline&HSTGNN
 
-## 1. install requirements
+## 3.1 install requirements
 
 1. to run our code, **Please make sure your python version is >=3.8.**
 2. install all the requirements, we assume that you have installed torch and pyg according to your environment
@@ -34,7 +34,7 @@ pip install -r ./requirements.txt
 
 
 
-## 2. run scripts
+## 3.2 run scripts
 
 
 Please first source this init.sh script:
@@ -49,7 +49,7 @@ or manually add this directory to your PATHONPATH environment variable
 export PYTHONPATH=./
 ```
 
-### single-step experiment
+### 1. single-step experiment
 
 Please change the settings in the following for what you need.
 
@@ -60,7 +60,7 @@ Please change the settings in the following for what you need.
 # running Crossformer with length 3,6,12 on dataset ETTm1, ETTm2
 ./scripts/single_step.sh "3 6 12" "ETTm1 ETTm2"  "cuda:2" Crossformer
 ```
-### multi-step experiment
+### 2. multi-step experiment
 
 
 Please change the settings in the following for what you need.
@@ -73,7 +73,7 @@ Please change the settings in the following for what you need.
 ```
 
 
-### long-term multi-step experiment
+### 3. long-term multi-step experiment
 
 ```python
 # running HSTGNN with length 96 168 336 720 on dataset ETTm1, ETTm2
@@ -84,5 +84,3 @@ Please change the settings in the following for what you need.
 ```
 
 
-
-# 

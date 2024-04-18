@@ -3,3 +3,16 @@ torchmetrics
 einops
 class-resolver
 torchvision
+pandas
+torchvision
+prettytable
+wandb
+scikit-learn
+gin-config 
+pyro-ppl
+torch-geometric
+torch-scatter
+torch-sparse
+fire
+
+
